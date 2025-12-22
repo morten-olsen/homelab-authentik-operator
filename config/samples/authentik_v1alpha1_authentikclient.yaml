@@ -1,0 +1,44 @@
+apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
+kind: AuthentikClient
+metadata:
+  labels:
+    app.kubernetes.io/name: operator-authentik
+    app.kubernetes.io/managed-by: kustomize
+  name: my-app
+  namespace: apps
+spec:
+  # Reference to the AuthentikServer to create this client on
+  serverRef:
+    name: main
+    namespace: authentik
+  # Display name for the OAuth2 client in Authentik
+  name: My Application
+  # Allowed redirect URIs for the client
+  redirectUris:
+    - https://myapp.example.com/callback
+    - https://myapp.example.com/auth/callback
+  # Optional: OAuth2 client type (confidential or public)
+  # clientType: confidential
+  # Optional: Allowed OAuth2 scopes
+  # scopes:
+  #   - openid
+  #   - profile
+  #   - email
+  # Optional: Custom name for the credentials secret
+  # secretName: my-app-oidc-credentials
+---
+# The operator will create a secret like this:
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: my-app-oidc-credentials
+#   namespace: apps
+# type: Opaque
+# data:
+#   clientId: <base64-encoded>
+#   clientSecret: <base64-encoded>
+#   issuer: <base64-encoded>
+#   authorizationUrl: <base64-encoded>
+#   tokenUrl: <base64-encoded>
+#   userinfoUrl: <base64-encoded>
+#   jwksUrl: <base64-encoded>

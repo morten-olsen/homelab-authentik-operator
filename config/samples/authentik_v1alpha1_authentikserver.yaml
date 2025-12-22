@@ -1,0 +1,24 @@
+apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
+kind: AuthentikServer
+metadata:
+  labels:
+    app.kubernetes.io/name: operator-authentik
+    app.kubernetes.io/managed-by: kustomize
+  name: main
+  namespace: authentik
+spec:
+  # Reference to a secret containing the PostgreSQL connection URL
+  # The secret must have a key "url" (or specify a different key)
+  postgresSecretRef:
+    name: postgres-credentials
+    key: url
+  # External hostname for Authentik
+  host: auth.example.com
+  # Optional: Authentik container image
+  # image: ghcr.io/goauthentik/server:latest
+  # Optional: Number of replicas
+  # replicas: 1
+  # Optional: TLS configuration
+  tls:
+    enabled: true
+    secretName: auth-tls

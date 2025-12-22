@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- authentik_v1alpha1_authentikserver.yaml
+- authentik_v1alpha1_authentikclient.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

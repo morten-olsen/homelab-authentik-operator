@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubebuilder version:*)",
+      "Bash(go version:*)",
+      "Bash(kubebuilder init:*)",
+      "Bash(kubebuilder create api:*)",
+      "Bash(make generate:*)",
+      "Bash(go get:*)",
+      "Bash(make build:*)",
+      "Bash(go doc:*)",
+      "Bash(make manifests:*)",
+      "Bash(go mod tidy:*)"
+    ]
+  }
+}
