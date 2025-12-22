@@ -122,6 +122,10 @@ var _ = Describe("AuthentikClient Controller", func() {
 			err := k8sClient.Get(ctx, clientNamespacedName, client)
 			if err == nil {
 				By("Cleanup the specific resource instance AuthentikClient")
+				if len(client.Finalizers) > 0 {
+					client.Finalizers = nil
+					Expect(k8sClient.Update(ctx, client)).To(Succeed())
+				}
 				Expect(k8sClient.Delete(ctx, client)).To(Succeed())
 			}
 

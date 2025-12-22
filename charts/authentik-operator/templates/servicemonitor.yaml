@@ -1,0 +1,23 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "authentik-operator.fullname" . }}-metrics-monitor
+  labels:
+    {{- include "authentik-operator.labels" . | nindent 4 }}
+spec:
+  endpoints:
+    - path: {{ .Values.metrics.serviceMonitor.path }}
+      port: metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      {{- if .Values.metrics.serviceMonitor.scheme }}
+      scheme: {{ .Values.metrics.serviceMonitor.scheme }}
+      {{- end }}
+      {{- if .Values.metrics.serviceMonitor.tlsConfig }}
+      tlsConfig:
+        {{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 8 }}
+      {{- end }}
+  selector:
+    matchLabels:
+      {{- include "authentik-operator.selectorLabels" . | nindent 6 }}
+{{- end }}

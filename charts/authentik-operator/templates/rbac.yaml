@@ -1,0 +1,144 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-manager-role" (include "authentik-operator.fullname" .) | quote }}
+  labels:
+    {{- include "authentik-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - authentik.homelab.mortenolsen.pro
+  resources:
+  - authentikclients
+  - authentikservers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - authentik.homelab.mortenolsen.pro
+  resources:
+  - authentikclients/finalizers
+  - authentikservers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - authentik.homelab.mortenolsen.pro
+  resources:
+  - authentikclients/status
+  - authentikservers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-manager-rolebinding" (include "authentik-operator.fullname" .) | quote }}
+  labels:
+    {{- include "authentik-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-manager-role" (include "authentik-operator.fullname" .) | quote }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "authentik-operator.serviceAccountName" . | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s-leader-election-role" (include "authentik-operator.fullname" .) | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "authentik-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-leader-election-rolebinding" (include "authentik-operator.fullname" .) | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "authentik-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ printf "%s-leader-election-role" (include "authentik-operator.fullname" .) | quote }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "authentik-operator.serviceAccountName" . | quote }}
+  namespace: {{ .Release.Namespace | quote }}
