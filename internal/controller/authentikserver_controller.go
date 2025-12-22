@@ -305,12 +305,6 @@ func (r *AuthentikServerReconciler) reconcileAuthentikDeployment(ctx context.Con
 		"app.kubernetes.io/managed-by": "authentik-operator",
 	}
 
-	// Get postgres secret namespace
-	postgresSecretNamespace := server.Spec.PostgresSecretRef.Namespace
-	if postgresSecretNamespace == "" {
-		postgresSecretNamespace = server.Namespace
-	}
-
 	// Get the postgres secret key
 	postgresSecretKey := server.Spec.PostgresSecretRef.Key
 	if postgresSecretKey == "" {

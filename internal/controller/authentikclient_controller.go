@@ -34,6 +34,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	api "goauthentik.io/api/v3"
+
 	authentikv1alpha1 "github.com/mortenolsen/operator-authentik/api/v1alpha1"
 	"github.com/mortenolsen/operator-authentik/internal/authentik"
 )
@@ -63,6 +65,19 @@ func (r *AuthentikClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
+	}
+
+	// Add finalizer if not present
+	if !controllerutil.ContainsFinalizer(oidcClient, authentikClientFinalizer) {
+		controllerutil.AddFinalizer(oidcClient, authentikClientFinalizer)
+		if err := r.Update(ctx, oidcClient); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Handle deletion
+	if !oidcClient.DeletionTimestamp.IsZero() {
+		return r.handleDeletion(ctx, oidcClient)
 	}
 
 	// Get the referenced AuthentikServer
@@ -123,31 +138,44 @@ func (r *AuthentikClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	serverURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:9000", server.Name, server.Namespace)
 	apiClient := authentik.NewClient(serverURL, token, true)
 
-	// Handle deletion
-	if !oidcClient.DeletionTimestamp.IsZero() {
-		if controllerutil.ContainsFinalizer(oidcClient, authentikClientFinalizer) {
-			// Delete resources from Authentik
-			if err := r.cleanupAuthentikResources(ctx, oidcClient, apiClient); err != nil {
-				log.Error(err, "Failed to cleanup Authentik resources")
-				// Don't block deletion, just log the error
-			}
+	return r.reconcileNormal(ctx, oidcClient, server, apiClient)
+}
 
-			controllerutil.RemoveFinalizer(oidcClient, authentikClientFinalizer)
-			if err := r.Update(ctx, oidcClient); err != nil {
-				return ctrl.Result{}, err
+func (r *AuthentikClientReconciler) handleDeletion(ctx context.Context, oidcClient *authentikv1alpha1.AuthentikClient) (ctrl.Result, error) {
+	if controllerutil.ContainsFinalizer(oidcClient, authentikClientFinalizer) {
+		// Get the referenced AuthentikServer to get the API token
+		server := &authentikv1alpha1.AuthentikServer{}
+		serverKey := types.NamespacedName{
+			Name:      oidcClient.Spec.ServerRef.Name,
+			Namespace: oidcClient.Spec.ServerRef.Namespace,
+		}
+		if err := r.Get(ctx, serverKey, server); err == nil && server.Status.Ready {
+			bootstrapSecret := &corev1.Secret{}
+			bootstrapSecretKey := types.NamespacedName{
+				Name:      server.Status.BootstrapSecretRef,
+				Namespace: server.Namespace,
+			}
+			if err := r.Get(ctx, bootstrapSecretKey, bootstrapSecret); err == nil {
+				token := string(bootstrapSecret.Data["token"])
+				if token != "" {
+					serverURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:9000", server.Name, server.Namespace)
+					apiClient := authentik.NewClient(serverURL, token, true)
+					// Delete resources from Authentik
+					r.cleanupAuthentikResources(ctx, oidcClient, apiClient)
+				}
 			}
 		}
-		return ctrl.Result{}, nil
-	}
 
-	// Add finalizer if not present
-	if !controllerutil.ContainsFinalizer(oidcClient, authentikClientFinalizer) {
-		controllerutil.AddFinalizer(oidcClient, authentikClientFinalizer)
+		controllerutil.RemoveFinalizer(oidcClient, authentikClientFinalizer)
 		if err := r.Update(ctx, oidcClient); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
+	return ctrl.Result{}, nil
+}
 
+func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcClient *authentikv1alpha1.AuthentikClient, server *authentikv1alpha1.AuthentikServer, apiClient *authentik.Client) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 	// Set default values
 	if oidcClient.Spec.ClientType == "" {
 		oidcClient.Spec.ClientType = "confidential"
@@ -230,40 +258,8 @@ func (r *AuthentikClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Create or update Application
 	appSlug := slugify(providerName)
-	app, err := apiClient.GetApplicationBySlug(ctx, appSlug)
-	if err != nil {
-		log.Error(err, "Failed to check for existing application")
-		r.setCondition(oidcClient, "ApplicationReady", metav1.ConditionFalse, "APIError", err.Error())
-		if err := r.Status().Update(ctx, oidcClient); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
-	}
-
-	if app == nil {
-		// Create new application
-		app, err = apiClient.CreateApplication(ctx, appSlug, oidcClient.Spec.Name, provider.GetPk())
-		if err != nil {
-			log.Error(err, "Failed to create application")
-			r.setCondition(oidcClient, "ApplicationReady", metav1.ConditionFalse, "CreateFailed", err.Error())
-			if err := r.Status().Update(ctx, oidcClient); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
-		log.Info("Created application", "slug", appSlug)
-	} else {
-		// Update existing application
-		app, err = apiClient.UpdateApplication(ctx, appSlug, oidcClient.Spec.Name, provider.GetPk())
-		if err != nil {
-			log.Error(err, "Failed to update application")
-			r.setCondition(oidcClient, "ApplicationReady", metav1.ConditionFalse, "UpdateFailed", err.Error())
-			if err := r.Status().Update(ctx, oidcClient); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{RequeueAfter: time.Minute}, nil
-		}
-		log.Info("Updated application", "slug", appSlug)
+	if err := r.reconcileApplication(ctx, oidcClient, appSlug, provider, apiClient); err != nil {
+		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
 	oidcClient.Status.ApplicationID = appSlug
@@ -275,46 +271,8 @@ func (r *AuthentikClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		secretName = fmt.Sprintf("%s-oidc-credentials", oidcClient.Name)
 	}
 
-	// Build OIDC URLs
-	baseURL := server.Status.URL
-	issuer := fmt.Sprintf("%s/application/o/%s/", baseURL, appSlug)
-	authorizationURL := fmt.Sprintf("%s/application/o/authorize/", baseURL)
-	tokenURL := fmt.Sprintf("%s/application/o/token/", baseURL)
-	userinfoURL := fmt.Sprintf("%s/application/o/userinfo/", baseURL)
-	jwksURL := fmt.Sprintf("%s/application/o/%s/jwks/", baseURL, appSlug)
-
-	credentialsSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: oidcClient.Namespace,
-		},
-	}
-
-	clientSecret := ""
-	if provider.ClientSecret != nil {
-		clientSecret = *provider.ClientSecret
-	}
-
-	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, credentialsSecret, func() error {
-		credentialsSecret.Type = corev1.SecretTypeOpaque
-		credentialsSecret.StringData = map[string]string{
-			"clientId":         provider.GetClientId(),
-			"clientSecret":     clientSecret,
-			"issuer":           issuer,
-			"authorizationUrl": authorizationURL,
-			"tokenUrl":         tokenURL,
-			"userinfoUrl":      userinfoURL,
-			"jwksUrl":          jwksURL,
-		}
-		return controllerutil.SetControllerReference(oidcClient, credentialsSecret, r.Scheme)
-	})
-	if err != nil {
-		log.Error(err, "Failed to create/update credentials secret")
-		r.setCondition(oidcClient, "SecretReady", metav1.ConditionFalse, "CreateFailed", err.Error())
-		if err := r.Status().Update(ctx, oidcClient); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	if err := r.reconcileCredentialsSecret(ctx, oidcClient, secretName, server, provider); err != nil {
+		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
 	oidcClient.Status.SecretName = secretName
@@ -334,7 +292,86 @@ func (r *AuthentikClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{}, nil
 }
 
-func (r *AuthentikClientReconciler) cleanupAuthentikResources(ctx context.Context, oidcClient *authentikv1alpha1.AuthentikClient, apiClient *authentik.Client) error {
+func (r *AuthentikClientReconciler) reconcileApplication(ctx context.Context, oidcClient *authentikv1alpha1.AuthentikClient, appSlug string, provider *api.OAuth2Provider, apiClient *authentik.Client) error {
+	log := logf.FromContext(ctx)
+	app, err := apiClient.GetApplicationBySlug(ctx, appSlug)
+	if err != nil {
+		log.Error(err, "Failed to check for existing application")
+		r.setCondition(oidcClient, "ApplicationReady", metav1.ConditionFalse, "APIError", err.Error())
+		_ = r.Status().Update(ctx, oidcClient)
+		return err
+	}
+
+	if app == nil {
+		// Create new application
+		_, err = apiClient.CreateApplication(ctx, appSlug, oidcClient.Spec.Name, provider.GetPk())
+		if err != nil {
+			log.Error(err, "Failed to create application")
+			r.setCondition(oidcClient, "ApplicationReady", metav1.ConditionFalse, "CreateFailed", err.Error())
+			_ = r.Status().Update(ctx, oidcClient)
+			return err
+		}
+		log.Info("Created application", "slug", appSlug)
+	} else {
+		// Update existing application
+		_, err = apiClient.UpdateApplication(ctx, appSlug, oidcClient.Spec.Name, provider.GetPk())
+		if err != nil {
+			log.Error(err, "Failed to update application")
+			r.setCondition(oidcClient, "ApplicationReady", metav1.ConditionFalse, "UpdateFailed", err.Error())
+			_ = r.Status().Update(ctx, oidcClient)
+			return err
+		}
+		log.Info("Updated application", "slug", appSlug)
+	}
+	return nil
+}
+
+func (r *AuthentikClientReconciler) reconcileCredentialsSecret(ctx context.Context, oidcClient *authentikv1alpha1.AuthentikClient, secretName string, server *authentikv1alpha1.AuthentikServer, provider *api.OAuth2Provider) error {
+	log := logf.FromContext(ctx)
+	// Build OIDC URLs
+	baseURL := server.Status.URL
+	appSlug := slugify(fmt.Sprintf("%s-%s", oidcClient.Namespace, oidcClient.Name))
+	issuer := fmt.Sprintf("%s/application/o/%s/", baseURL, appSlug)
+	authorizationURL := fmt.Sprintf("%s/application/o/authorize/", baseURL)
+	tokenURL := fmt.Sprintf("%s/application/o/token/", baseURL)
+	userinfoURL := fmt.Sprintf("%s/application/o/userinfo/", baseURL)
+	jwksURL := fmt.Sprintf("%s/application/o/%s/jwks/", baseURL, appSlug)
+
+	credentialsSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: oidcClient.Namespace,
+		},
+	}
+
+	clientSecret := ""
+	if provider.ClientSecret != nil {
+		clientSecret = *provider.ClientSecret
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, credentialsSecret, func() error {
+		credentialsSecret.Type = corev1.SecretTypeOpaque
+		credentialsSecret.StringData = map[string]string{
+			"clientId":         provider.GetClientId(),
+			"clientSecret":     clientSecret,
+			"issuer":           issuer,
+			"authorizationUrl": authorizationURL,
+			"tokenUrl":         tokenURL,
+			"userinfoUrl":      userinfoURL,
+			"jwksUrl":          jwksURL,
+		}
+		return controllerutil.SetControllerReference(oidcClient, credentialsSecret, r.Scheme)
+	})
+	if err != nil {
+		log.Error(err, "Failed to create/update credentials secret")
+		r.setCondition(oidcClient, "SecretReady", metav1.ConditionFalse, "CreateFailed", err.Error())
+		_ = r.Status().Update(ctx, oidcClient)
+		return err
+	}
+	return nil
+}
+
+func (r *AuthentikClientReconciler) cleanupAuthentikResources(ctx context.Context, oidcClient *authentikv1alpha1.AuthentikClient, apiClient *authentik.Client) {
 	log := logf.FromContext(ctx)
 
 	// Delete application first
@@ -350,8 +387,6 @@ func (r *AuthentikClientReconciler) cleanupAuthentikResources(ctx context.Contex
 			log.Error(err, "Failed to delete provider", "id", oidcClient.Status.ProviderID)
 		}
 	}
-
-	return nil
 }
 
 func (r *AuthentikClientReconciler) setCondition(oidcClient *authentikv1alpha1.AuthentikClient, conditionType string, status metav1.ConditionStatus, reason, message string) {

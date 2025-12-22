@@ -77,8 +77,12 @@ var _ = Describe("Manager", Ordered, func() {
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
 	// and deleting the namespace.
 	AfterAll(func() {
+		By("cleaning up the ClusterRoleBinding for metrics")
+		cmd := exec.Command("kubectl", "delete", "clusterrolebinding", metricsRoleBindingName)
+		_, _ = utils.Run(cmd)
+
 		By("cleaning up the curl pod for metrics")
-		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
+		cmd = exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
 		_, _ = utils.Run(cmd)
 
 		By("undeploying the controller-manager")
@@ -374,6 +378,76 @@ spec:
 
 			By("cleaning up the postgres secret")
 			cmd = exec.Command("kubectl", "delete", "secret", "e2e-postgres-secret", "-n", namespace)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should reconcile an AuthentikClient CR", func() {
+			By("applying the AuthentikServer CR")
+			authentikServerYAML := `
+apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
+kind: AuthentikServer
+metadata:
+  name: e2e-test-server-client
+  namespace: ` + namespace + `
+spec:
+  postgresSecretRef:
+    name: e2e-postgres-secret-client
+    key: url
+  host: auth-client.e2e-test.local
+`
+			tmpServerFile := filepath.Join("/tmp", "authentikserver-client-e2e.yaml")
+			err := os.WriteFile(tmpServerFile, []byte(authentikServerYAML), 0644)
+			Expect(err).NotTo(HaveOccurred())
+			cmd := exec.Command("kubectl", "apply", "-f", tmpServerFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("applying the AuthentikClient CR")
+			authentikClientYAML := `
+apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
+kind: AuthentikClient
+metadata:
+  name: e2e-test-client
+  namespace: ` + namespace + `
+spec:
+  serverRef:
+    name: e2e-test-server-client
+    namespace: ` + namespace + `
+  name: "Test Client"
+  redirectUris:
+    - https://app.e2e-test.local/callback
+`
+			tmpClientFile := filepath.Join("/tmp", "authentikclient-e2e.yaml")
+			err = os.WriteFile(tmpClientFile, []byte(authentikClientYAML), 0644)
+			Expect(err).NotTo(HaveOccurred())
+			cmd = exec.Command("kubectl", "apply", "-f", tmpClientFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying that the AuthentikClient CR is created")
+			verifyClientCreated := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "authentikclient", "e2e-test-client",
+					"-n", namespace, "-o", "jsonpath={.metadata.name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("e2e-test-client"))
+			}
+			Eventually(verifyClientCreated, 30*time.Second, time.Second).Should(Succeed())
+
+			By("verifying that the client is waiting for server ready")
+			verifyClientWaiting := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "authentikclient", "e2e-test-client",
+					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='ServerReady')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("False"))
+			}
+			Eventually(verifyClientWaiting, 30*time.Second, time.Second).Should(Succeed())
+
+			By("cleaning up the AuthentikClient and AuthentikServer")
+			cmd = exec.Command("kubectl", "delete", "authentikclient", "e2e-test-client", "-n", namespace)
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "authentikserver", "e2e-test-server-client", "-n", namespace)
 			_, _ = utils.Run(cmd)
 		})
 	})
