@@ -63,6 +63,16 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
 
+		By("deploying postgres")
+		cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/postgres.yaml", "-n", namespace)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to deploy postgres")
+
+		By("waiting for postgres to be ready")
+		cmd = exec.Command("kubectl", "wait", "deployment/postgres", "--for=condition=Available", "--timeout=300s", "-n", namespace)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Postgres did not become ready")
+
 		By("installing CRDs")
 		cmd = exec.Command("make", "install")
 		_, err = utils.Run(cmd)
@@ -275,7 +285,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should reconcile an AuthentikServer CR", func() {
 			By("creating the postgres secret")
 			cmd := exec.Command("kubectl", "create", "secret", "generic", "e2e-postgres-secret",
-				"--from-literal=host=localhost",
+				"--from-literal=host=postgres",
 				"--from-literal=user=authentik",
 				"--from-literal=name=authentik",
 				"--from-literal=password=authentik",
@@ -346,11 +356,11 @@ spec:
 
 			By("verifying that the Authentik deployment was created")
 			verifyAuthentikDeployment := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "deployment", "e2e-test-server",
+				cmd := exec.Command("kubectl", "get", "deployment", "e2e-test-server-server",
 					"-n", namespace, "-o", "jsonpath={.metadata.name}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("e2e-test-server"))
+				g.Expect(output).To(Equal("e2e-test-server-server"))
 			}
 			Eventually(verifyAuthentikDeployment, 60*time.Second, time.Second).Should(Succeed())
 
@@ -396,7 +406,7 @@ spec:
 		It("should reconcile an AuthentikClient CR", func() {
 			By("creating the postgres secret")
 			cmd := exec.Command("kubectl", "create", "secret", "generic", "e2e-postgres-secret-client",
-				"--from-literal=host=localhost",
+				"--from-literal=host=postgres",
 				"--from-literal=user=authentik",
 				"--from-literal=name=authentik",
 				"--from-literal=password=authentik",
@@ -427,9 +437,9 @@ spec:
   host: auth-client.e2e-test.local
 `
 			tmpServerFile := filepath.Join("/tmp", "authentikserver-client-e2e.yaml")
-			err := os.WriteFile(tmpServerFile, []byte(authentikServerYAML), 0644)
+			err = os.WriteFile(tmpServerFile, []byte(authentikServerYAML), 0644)
 			Expect(err).NotTo(HaveOccurred())
-			cmd := exec.Command("kubectl", "apply", "-f", tmpServerFile)
+			cmd = exec.Command("kubectl", "apply", "-f", tmpServerFile)
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
