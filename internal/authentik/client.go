@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -33,15 +34,21 @@ type Client struct {
 }
 
 // NewClient creates a new Authentik API client
-func NewClient(baseURL, token string, insecureSkipVerify bool) *Client {
-	baseURL = strings.TrimSuffix(baseURL, "/")
-	if !strings.HasSuffix(baseURL, "/api/v3") {
-		baseURL = baseURL + "/api/v3"
+func NewClient(baseURL, token string, insecureSkipVerify bool, serviceURL string) *Client {
+	// If serviceURL is provided, use it for API calls
+	apiURL := baseURL
+	if serviceURL != "" {
+		apiURL = serviceURL
+	}
+
+	apiURL = strings.TrimSuffix(apiURL, "/")
+	if !strings.HasSuffix(apiURL, "/api/v3") {
+		apiURL = apiURL + "/api/v3"
 	}
 
 	cfg := api.NewConfiguration()
 	cfg.Servers = api.ServerConfigurations{
-		{URL: baseURL},
+		{URL: apiURL},
 	}
 	cfg.AddDefaultHeader("Authorization", fmt.Sprintf("Bearer %s", token))
 
@@ -134,13 +141,21 @@ func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowSlug, i
 		req.SetClientType(api.CLIENTTYPEENUM_CONFIDENTIAL)
 	}
 
-	if len(propertyMappings) > 0 {
-		req.SetPropertyMappings(propertyMappings)
-	}
+	// Always set property mappings, even if empty, to ensure proper API behavior
+	req.SetPropertyMappings(propertyMappings)
 
-	provider, _, err := c.api.ProvidersApi.ProvidersOauth2Create(ctx).OAuth2ProviderRequest(*req).Execute()
+	provider, resp, err := c.api.ProvidersApi.ProvidersOauth2Create(ctx).OAuth2ProviderRequest(*req).Execute()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create OAuth2 provider: %w", err)
+		// Try to extract response body if available
+		var errorMsg string
+		if resp != nil && resp.Body != nil {
+			if body, readErr := io.ReadAll(resp.Body); readErr == nil {
+				errorMsg = fmt.Sprintf(" (response body: %s)", string(body))
+				resp.Body.Close()
+			}
+		}
+		// Include the original error which may already contain response details
+		return nil, fmt.Errorf("failed to create OAuth2 provider: %w%s", err, errorMsg)
 	}
 
 	return provider, nil
@@ -183,9 +198,8 @@ func (c *Client) UpdateOAuth2Provider(ctx context.Context, id int32, name, authF
 		req.SetClientType(api.CLIENTTYPEENUM_CONFIDENTIAL)
 	}
 
-	if len(propertyMappings) > 0 {
-		req.SetPropertyMappings(propertyMappings)
-	}
+	// Always set property mappings, even if empty, to ensure proper API behavior
+	req.SetPropertyMappings(propertyMappings)
 
 	provider, _, err := c.api.ProvidersApi.ProvidersOauth2Update(ctx, id).OAuth2ProviderRequest(*req).Execute()
 	if err != nil {

@@ -5,6 +5,7 @@ metadata:
     control-plane: controller-manager
     app.kubernetes.io/name: operator-authentik
     app.kubernetes.io/managed-by: kustomize
+    pod-security.kubernetes.io/enforce: restricted
   name: system
 ---
 apiVersion: apps/v1

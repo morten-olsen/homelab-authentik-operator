@@ -133,10 +133,27 @@ func (r *AuthentikServerReconciler) reconcileRedis(ctx context.Context, server *
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: ptr.To(true),
+						RunAsUser:    ptr.To(int64(999)),
+						RunAsGroup:   ptr.To(int64(999)),
+						FSGroup:      ptr.To(int64(999)),
+						SeccompProfile: &corev1.SeccompProfile{
+							Type: corev1.SeccompProfileTypeRuntimeDefault,
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:  "redis",
 							Image: "redis:7-alpine",
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: ptr.To(false),
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{"ALL"},
+								},
+								RunAsNonRoot: ptr.To(true),
+								RunAsUser:    ptr.To(int64(999)),
+							},
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 6379,
@@ -255,11 +272,28 @@ func (r *AuthentikServerReconciler) reconcileAuthentikServerDeployment(ctx conte
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: ptr.To(true),
+						RunAsUser:    ptr.To(int64(1000)),
+						RunAsGroup:   ptr.To(int64(1000)),
+						FSGroup:      ptr.To(int64(1000)),
+						SeccompProfile: &corev1.SeccompProfile{
+							Type: corev1.SeccompProfileTypeRuntimeDefault,
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:  "authentik",
 							Image: server.Spec.Image,
 							Args:  []string{"server"},
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: ptr.To(false),
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{"ALL"},
+								},
+								RunAsNonRoot: ptr.To(true),
+								RunAsUser:    ptr.To(int64(1000)),
+							},
 							Ports: []corev1.ContainerPort{
 								{
 									Name:          "http",
@@ -331,12 +365,29 @@ func (r *AuthentikServerReconciler) reconcileAuthentikWorkerDeployment(ctx conte
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: ptr.To(true),
+						RunAsUser:    ptr.To(int64(1000)),
+						RunAsGroup:   ptr.To(int64(1000)),
+						FSGroup:      ptr.To(int64(1000)),
+						SeccompProfile: &corev1.SeccompProfile{
+							Type: corev1.SeccompProfileTypeRuntimeDefault,
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:  "authentik",
 							Image: server.Spec.Image,
 							Args:  []string{"worker"},
-							Env:   r.getCommonEnv(server, bootstrapSecretName),
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: ptr.To(false),
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{"ALL"},
+								},
+								RunAsNonRoot: ptr.To(true),
+								RunAsUser:    ptr.To(int64(1000)),
+							},
+							Env: r.getCommonEnv(server, bootstrapSecretName),
 						},
 					},
 				},

@@ -136,7 +136,7 @@ func (r *AuthentikClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Create Authentik API client
 	// Use internal service URL for in-cluster communication
 	serverURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:9000", server.Name, server.Namespace)
-	apiClient := authentik.NewClient(serverURL, token, true)
+	apiClient := authentik.NewClient(serverURL, token, true, "")
 
 	return r.reconcileNormal(ctx, oidcClient, server, apiClient)
 }
@@ -159,7 +159,7 @@ func (r *AuthentikClientReconciler) handleDeletion(ctx context.Context, oidcClie
 				token := string(bootstrapSecret.Data["token"])
 				if token != "" {
 					serverURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:9000", server.Name, server.Namespace)
-					apiClient := authentik.NewClient(serverURL, token, true)
+					apiClient := authentik.NewClient(serverURL, token, true, "")
 					// Delete resources from Authentik
 					r.cleanupAuthentikResources(ctx, oidcClient, apiClient)
 				}
