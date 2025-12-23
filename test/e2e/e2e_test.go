@@ -275,7 +275,10 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should reconcile an AuthentikServer CR", func() {
 			By("creating the postgres secret")
 			cmd := exec.Command("kubectl", "create", "secret", "generic", "e2e-postgres-secret",
-				"--from-literal=url=postgresql://user:pass@localhost:5432/authentik",
+				"--from-literal=host=localhost",
+				"--from-literal=user=authentik",
+				"--from-literal=name=authentik",
+				"--from-literal=password=authentik",
 				"-n", namespace)
 			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create postgres secret")
@@ -288,9 +291,18 @@ metadata:
   name: e2e-test-server
   namespace: ` + namespace + `
 spec:
-  postgresSecretRef:
+  postgresHostSecretRef:
     name: e2e-postgres-secret
-    key: url
+    key: host
+  postgresUserSecretRef:
+    name: e2e-postgres-secret
+    key: user
+  postgresNameSecretRef:
+    name: e2e-postgres-secret
+    key: name
+  postgresPasswordSecretRef:
+    name: e2e-postgres-secret
+    key: password
   host: auth.e2e-test.local
 `
 			// Write YAML to temp file
@@ -382,6 +394,16 @@ spec:
 		})
 
 		It("should reconcile an AuthentikClient CR", func() {
+			By("creating the postgres secret")
+			cmd := exec.Command("kubectl", "create", "secret", "generic", "e2e-postgres-secret-client",
+				"--from-literal=host=localhost",
+				"--from-literal=user=authentik",
+				"--from-literal=name=authentik",
+				"--from-literal=password=authentik",
+				"-n", namespace)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
 			By("applying the AuthentikServer CR")
 			authentikServerYAML := `
 apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
@@ -390,9 +412,18 @@ metadata:
   name: e2e-test-server-client
   namespace: ` + namespace + `
 spec:
-  postgresSecretRef:
+  postgresHostSecretRef:
     name: e2e-postgres-secret-client
-    key: url
+    key: host
+  postgresUserSecretRef:
+    name: e2e-postgres-secret-client
+    key: user
+  postgresNameSecretRef:
+    name: e2e-postgres-secret-client
+    key: name
+  postgresPasswordSecretRef:
+    name: e2e-postgres-secret-client
+    key: password
   host: auth-client.e2e-test.local
 `
 			tmpServerFile := filepath.Join("/tmp", "authentikserver-client-e2e.yaml")
@@ -434,20 +465,32 @@ spec:
 			}
 			Eventually(verifyClientCreated, 30*time.Second, time.Second).Should(Succeed())
 
-			By("verifying that the client is waiting for server ready")
-			verifyClientWaiting := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "authentikclient", "e2e-test-client",
-					"-n", namespace, "-o", "jsonpath={.status.conditions[?(@.type=='ServerReady')].status}")
+			By("verifying that the server is eventually ready")
+			verifyServerReady := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "authentikserver", "e2e-test-server-client",
+					"-n", namespace, "-o", "jsonpath={.status.ready}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("False"))
+				g.Expect(output).To(Equal("true"))
 			}
-			Eventually(verifyClientWaiting, 30*time.Second, time.Second).Should(Succeed())
+			Eventually(verifyServerReady, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying that the client is eventually ready")
+			verifyClientReady := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "authentikclient", "e2e-test-client",
+					"-n", namespace, "-o", "jsonpath={.status.ready}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"))
+			}
+			Eventually(verifyClientReady, 5*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("cleaning up the AuthentikClient and AuthentikServer")
 			cmd = exec.Command("kubectl", "delete", "authentikclient", "e2e-test-client", "-n", namespace)
 			_, _ = utils.Run(cmd)
 			cmd = exec.Command("kubectl", "delete", "authentikserver", "e2e-test-server-client", "-n", namespace)
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "secret", "e2e-postgres-secret-client", "-n", namespace)
 			_, _ = utils.Run(cmd)
 		})
 	})
