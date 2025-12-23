@@ -30,9 +30,8 @@ type SecretKeyReference struct {
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 
-	// key is the key in the secret to use. Defaults to "url" for postgres secrets.
+	// key is the key in the secret to use.
 	// +optional
-	// +kubebuilder:default="url"
 	Key string `json:"key,omitempty"`
 }
 
@@ -49,10 +48,37 @@ type TLSConfig struct {
 
 // AuthentikServerSpec defines the desired state of AuthentikServer
 type AuthentikServerSpec struct {
-	// postgresSecretRef references a secret containing the PostgreSQL connection URL.
-	// The secret must have a key (default: "url") with the connection string.
-	// +kubebuilder:validation:Required
-	PostgresSecretRef SecretKeyReference `json:"postgresSecretRef"`
+	// postgresHost is the PostgreSQL host
+	// +optional
+	PostgresHost string `json:"postgresHost,omitempty"`
+
+	// postgresHostSecretRef references a secret containing the PostgreSQL host
+	// +optional
+	PostgresHostSecretRef *SecretKeyReference `json:"postgresHostSecretRef,omitempty"`
+
+	// postgresUser is the PostgreSQL user
+	// +optional
+	PostgresUser string `json:"postgresUser,omitempty"`
+
+	// postgresUserSecretRef references a secret containing the PostgreSQL user
+	// +optional
+	PostgresUserSecretRef *SecretKeyReference `json:"postgresUserSecretRef,omitempty"`
+
+	// postgresName is the PostgreSQL database name
+	// +optional
+	PostgresName string `json:"postgresName,omitempty"`
+
+	// postgresNameSecretRef references a secret containing the PostgreSQL database name
+	// +optional
+	PostgresNameSecretRef *SecretKeyReference `json:"postgresNameSecretRef,omitempty"`
+
+	// postgresPassword is the PostgreSQL password
+	// +optional
+	PostgresPassword string `json:"postgresPassword,omitempty"`
+
+	// postgresPasswordSecretRef references a secret containing the PostgreSQL password
+	// +optional
+	PostgresPasswordSecretRef *SecretKeyReference `json:"postgresPasswordSecretRef,omitempty"`
 
 	// image is the Authentik container image to use
 	// +optional

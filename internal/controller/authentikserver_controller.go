@@ -305,12 +305,6 @@ func (r *AuthentikServerReconciler) reconcileAuthentikDeployment(ctx context.Con
 		"app.kubernetes.io/managed-by": "authentik-operator",
 	}
 
-	// Get the postgres secret key
-	postgresSecretKey := server.Spec.PostgresSecretRef.Key
-	if postgresSecretKey == "" {
-		postgresSecretKey = "url"
-	}
-
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      server.Name,
@@ -348,17 +342,10 @@ func (r *AuthentikServerReconciler) reconcileAuthentikDeployment(ctx context.Con
 								},
 							},
 							Env: []corev1.EnvVar{
-								{
-									Name: "AUTHENTIK_POSTGRESQL__HOST",
-									ValueFrom: &corev1.EnvVarSource{
-										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: server.Spec.PostgresSecretRef.Name,
-											},
-											Key: postgresSecretKey,
-										},
-									},
-								},
+								r.getEnvVar("AUTHENTIK_POSTGRESQL__HOST", server.Spec.PostgresHost, server.Spec.PostgresHostSecretRef),
+								r.getEnvVar("AUTHENTIK_POSTGRESQL__USER", server.Spec.PostgresUser, server.Spec.PostgresUserSecretRef),
+								r.getEnvVar("AUTHENTIK_POSTGRESQL__NAME", server.Spec.PostgresName, server.Spec.PostgresNameSecretRef),
+								r.getEnvVar("AUTHENTIK_POSTGRESQL__PASSWORD", server.Spec.PostgresPassword, server.Spec.PostgresPasswordSecretRef),
 								{
 									Name:  "AUTHENTIK_REDIS__HOST",
 									Value: fmt.Sprintf("%s-redis", server.Name),
@@ -553,6 +540,26 @@ func generateRandomString(length int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes)[:length], nil
+}
+
+func (r *AuthentikServerReconciler) getEnvVar(name string, value string, secretRef *authentikv1alpha1.SecretKeyReference) corev1.EnvVar {
+	if secretRef != nil {
+		return corev1.EnvVar{
+			Name: name,
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: secretRef.Name,
+					},
+					Key: secretRef.Key,
+				},
+			},
+		}
+	}
+	return corev1.EnvVar{
+		Name:  name,
+		Value: value,
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.

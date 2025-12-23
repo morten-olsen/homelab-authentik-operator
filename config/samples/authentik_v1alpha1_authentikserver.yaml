@@ -7,11 +7,19 @@ metadata:
   name: main
   namespace: authentik
 spec:
-  # Reference to a secret containing the PostgreSQL connection URL
-  # The secret must have a key "url" (or specify a different key)
-  postgresSecretRef:
+  # Reference to secrets containing the PostgreSQL connection details
+  postgresHostSecretRef:
     name: postgres-credentials
-    key: url
+    key: host
+  postgresUserSecretRef:
+    name: postgres-credentials
+    key: user
+  postgresNameSecretRef:
+    name: postgres-credentials
+    key: name
+  postgresPasswordSecretRef:
+    name: postgres-credentials
+    key: password
   # External hostname for Authentik
   host: auth.example.com
   # Optional: Authentik container image
