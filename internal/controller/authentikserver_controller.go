@@ -71,105 +71,35 @@ func (r *AuthentikServerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	// Handle deletion
-	if !server.DeletionTimestamp.IsZero() {
-		if controllerutil.ContainsFinalizer(server, authentikServerFinalizer) {
-			// Perform cleanup if needed
-			controllerutil.RemoveFinalizer(server, authentikServerFinalizer)
-			if err := r.Update(ctx, server); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return ctrl.Result{}, nil
-	}
-
-	// Add finalizer if not present
-	if !controllerutil.ContainsFinalizer(server, authentikServerFinalizer) {
-		controllerutil.AddFinalizer(server, authentikServerFinalizer)
-		if err := r.Update(ctx, server); err != nil {
-			return ctrl.Result{}, err
-		}
+	// Handle finalizers
+	stop, err := r.handleFinalizers(ctx, server)
+	if stop {
+		return ctrl.Result{}, err
 	}
 
 	// Set default values
-	if server.Spec.Image == "" {
-		server.Spec.Image = "ghcr.io/goauthentik/server:latest"
-	}
-	if server.Spec.Replicas == nil {
-		server.Spec.Replicas = ptr.To(int32(1))
-	}
+	r.applyDefaults(server)
 
-	// Create or update Redis
-	if err := r.reconcileRedis(ctx, server); err != nil {
-		log.Error(err, "Failed to reconcile Redis")
-		r.setCondition(server, "RedisReady", metav1.ConditionFalse, "ReconcileFailed", err.Error())
-		if err := r.Status().Update(ctx, server); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: time.Minute}, err
-	}
-	r.setCondition(server, "RedisReady", metav1.ConditionTrue, "Reconciled", "Redis is ready")
-
-	// Create bootstrap secret if not exists
-	bootstrapSecretName := fmt.Sprintf("%s-bootstrap", server.Name)
-	if err := r.reconcileBootstrapSecret(ctx, server, bootstrapSecretName); err != nil {
-		log.Error(err, "Failed to reconcile bootstrap secret")
-		r.setCondition(server, "BootstrapSecretReady", metav1.ConditionFalse, "ReconcileFailed", err.Error())
-		if err := r.Status().Update(ctx, server); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: time.Minute}, err
-	}
-	r.setCondition(server, "BootstrapSecretReady", metav1.ConditionTrue, "Reconciled", "Bootstrap secret is ready")
-	server.Status.BootstrapSecretRef = bootstrapSecretName
-
-	// Create or update Authentik deployment
-	if err := r.reconcileAuthentikDeployment(ctx, server, bootstrapSecretName); err != nil {
-		log.Error(err, "Failed to reconcile Authentik deployment")
-		r.setCondition(server, "DeploymentReady", metav1.ConditionFalse, "ReconcileFailed", err.Error())
+	// Reconcile components
+	if err := r.reconcileComponents(ctx, server); err != nil {
+		log.Error(err, "Failed to reconcile components")
 		if err := r.Status().Update(ctx, server); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
-	// Check if deployment is ready
-	deployment := &appsv1.Deployment{}
-	if err := r.Get(ctx, types.NamespacedName{Name: server.Name, Namespace: server.Namespace}, deployment); err != nil {
+	// Check if deployments are ready
+	ready, err := r.checkDeploymentStatus(ctx, server)
+	if err != nil {
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
-
-	if deployment.Status.ReadyReplicas > 0 {
-		r.setCondition(server, "DeploymentReady", metav1.ConditionTrue, "Reconciled", "Deployment is ready")
-	} else {
-		r.setCondition(server, "DeploymentReady", metav1.ConditionFalse, "Pending", "Waiting for deployment to be ready")
-	}
-
-	// Create or update Service
-	if err := r.reconcileService(ctx, server); err != nil {
-		log.Error(err, "Failed to reconcile Service")
-		return ctrl.Result{RequeueAfter: time.Minute}, err
-	}
-
-	// Create or update Ingress
-	if err := r.reconcileIngress(ctx, server); err != nil {
-		log.Error(err, "Failed to reconcile Ingress")
-		return ctrl.Result{RequeueAfter: time.Minute}, err
-	}
-
-	// Update status
-	scheme := "http"
-	if server.Spec.TLS != nil && server.Spec.TLS.Enabled {
-		scheme = "https"
-	}
-	server.Status.URL = fmt.Sprintf("%s://%s", scheme, server.Spec.Host)
-	server.Status.Ready = deployment.Status.ReadyReplicas > 0
 
 	if err := r.Status().Update(ctx, server); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if !server.Status.Ready {
+	if !ready {
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
@@ -298,16 +228,17 @@ func (r *AuthentikServerReconciler) reconcileBootstrapSecret(ctx context.Context
 	return r.Create(ctx, secret)
 }
 
-func (r *AuthentikServerReconciler) reconcileAuthentikDeployment(ctx context.Context, server *authentikv1alpha1.AuthentikServer, bootstrapSecretName string) error {
+func (r *AuthentikServerReconciler) reconcileAuthentikServerDeployment(ctx context.Context, server *authentikv1alpha1.AuthentikServer, bootstrapSecretName string) error {
 	labels := map[string]string{
 		"app.kubernetes.io/name":       "authentik",
 		"app.kubernetes.io/instance":   server.Name,
+		"app.kubernetes.io/component":  "server",
 		"app.kubernetes.io/managed-by": "authentik-operator",
 	}
 
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      server.Name,
+			Name:      fmt.Sprintf("%s-server", server.Name),
 			Namespace: server.Namespace,
 		},
 	}
@@ -341,60 +272,7 @@ func (r *AuthentikServerReconciler) reconcileAuthentikDeployment(ctx context.Con
 									Protocol:      corev1.ProtocolTCP,
 								},
 							},
-							Env: []corev1.EnvVar{
-								r.getEnvVar("AUTHENTIK_POSTGRESQL__HOST", server.Spec.PostgresHost, server.Spec.PostgresHostSecretRef),
-								r.getEnvVar("AUTHENTIK_POSTGRESQL__USER", server.Spec.PostgresUser, server.Spec.PostgresUserSecretRef),
-								r.getEnvVar("AUTHENTIK_POSTGRESQL__NAME", server.Spec.PostgresName, server.Spec.PostgresNameSecretRef),
-								r.getEnvVar("AUTHENTIK_POSTGRESQL__PASSWORD", server.Spec.PostgresPassword, server.Spec.PostgresPasswordSecretRef),
-								{
-									Name:  "AUTHENTIK_REDIS__HOST",
-									Value: fmt.Sprintf("%s-redis", server.Name),
-								},
-								{
-									Name: "AUTHENTIK_SECRET_KEY",
-									ValueFrom: &corev1.EnvVarSource{
-										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: bootstrapSecretName,
-											},
-											Key: "secret-key",
-										},
-									},
-								},
-								{
-									Name: "AUTHENTIK_BOOTSTRAP_TOKEN",
-									ValueFrom: &corev1.EnvVarSource{
-										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: bootstrapSecretName,
-											},
-											Key: "token",
-										},
-									},
-								},
-								{
-									Name: "AUTHENTIK_BOOTSTRAP_PASSWORD",
-									ValueFrom: &corev1.EnvVarSource{
-										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: bootstrapSecretName,
-											},
-											Key: "password",
-										},
-									},
-								},
-								{
-									Name: "AUTHENTIK_BOOTSTRAP_EMAIL",
-									ValueFrom: &corev1.EnvVarSource{
-										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: bootstrapSecretName,
-											},
-											Key: "email",
-										},
-									},
-								},
-							},
+							Env: r.getCommonEnv(server, bootstrapSecretName),
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
@@ -426,10 +304,112 @@ func (r *AuthentikServerReconciler) reconcileAuthentikDeployment(ctx context.Con
 	return err
 }
 
+func (r *AuthentikServerReconciler) reconcileAuthentikWorkerDeployment(ctx context.Context, server *authentikv1alpha1.AuthentikServer, bootstrapSecretName string) error {
+	labels := map[string]string{
+		"app.kubernetes.io/name":       "authentik",
+		"app.kubernetes.io/instance":   server.Name,
+		"app.kubernetes.io/component":  "worker",
+		"app.kubernetes.io/managed-by": "authentik-operator",
+	}
+
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-worker", server.Name),
+			Namespace: server.Namespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
+		deployment.Labels = labels
+		deployment.Spec = appsv1.DeploymentSpec{
+			Replicas: ptr.To(int32(1)),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "authentik",
+							Image: server.Spec.Image,
+							Args:  []string{"worker"},
+							Env:   r.getCommonEnv(server, bootstrapSecretName),
+						},
+					},
+				},
+			},
+		}
+		return controllerutil.SetControllerReference(server, deployment, r.Scheme)
+	})
+
+	return err
+}
+
+func (r *AuthentikServerReconciler) getCommonEnv(server *authentikv1alpha1.AuthentikServer, bootstrapSecretName string) []corev1.EnvVar {
+	return []corev1.EnvVar{
+		r.getEnvVar("AUTHENTIK_POSTGRESQL__HOST", server.Spec.PostgresHost, server.Spec.PostgresHostSecretRef),
+		r.getEnvVar("AUTHENTIK_POSTGRESQL__USER", server.Spec.PostgresUser, server.Spec.PostgresUserSecretRef),
+		r.getEnvVar("AUTHENTIK_POSTGRESQL__NAME", server.Spec.PostgresName, server.Spec.PostgresNameSecretRef),
+		r.getEnvVar("AUTHENTIK_POSTGRESQL__PASSWORD", server.Spec.PostgresPassword, server.Spec.PostgresPasswordSecretRef),
+		{
+			Name:  "AUTHENTIK_REDIS__HOST",
+			Value: fmt.Sprintf("%s-redis", server.Name),
+		},
+		{
+			Name: "AUTHENTIK_SECRET_KEY",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: bootstrapSecretName,
+					},
+					Key: "secret-key",
+				},
+			},
+		},
+		{
+			Name: "AUTHENTIK_BOOTSTRAP_TOKEN",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: bootstrapSecretName,
+					},
+					Key: "token",
+				},
+			},
+		},
+		{
+			Name: "AUTHENTIK_BOOTSTRAP_PASSWORD",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: bootstrapSecretName,
+					},
+					Key: "password",
+				},
+			},
+		},
+		{
+			Name: "AUTHENTIK_BOOTSTRAP_EMAIL",
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: bootstrapSecretName,
+					},
+					Key: "email",
+				},
+			},
+		},
+	}
+}
+
 func (r *AuthentikServerReconciler) reconcileService(ctx context.Context, server *authentikv1alpha1.AuthentikServer) error {
 	labels := map[string]string{
 		"app.kubernetes.io/name":       "authentik",
 		"app.kubernetes.io/instance":   server.Name,
+		"app.kubernetes.io/component":  "server",
 		"app.kubernetes.io/managed-by": "authentik-operator",
 	}
 
@@ -469,6 +449,7 @@ func (r *AuthentikServerReconciler) reconcileIngress(ctx context.Context, server
 	labels := map[string]string{
 		"app.kubernetes.io/name":       "authentik",
 		"app.kubernetes.io/instance":   server.Name,
+		"app.kubernetes.io/component":  "server",
 		"app.kubernetes.io/managed-by": "authentik-operator",
 	}
 
@@ -559,6 +540,123 @@ func (r *AuthentikServerReconciler) getEnvVar(name string, value string, secretR
 	return corev1.EnvVar{
 		Name:  name,
 		Value: value,
+	}
+}
+
+func (r *AuthentikServerReconciler) handleFinalizers(ctx context.Context, server *authentikv1alpha1.AuthentikServer) (bool, error) {
+	if !server.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(server, authentikServerFinalizer) {
+			// Perform cleanup if needed
+			controllerutil.RemoveFinalizer(server, authentikServerFinalizer)
+			if err := r.Update(ctx, server); err != nil {
+				return true, err
+			}
+		}
+		return true, nil
+	}
+
+	// Add finalizer if not present
+	if !controllerutil.ContainsFinalizer(server, authentikServerFinalizer) {
+		controllerutil.AddFinalizer(server, authentikServerFinalizer)
+		if err := r.Update(ctx, server); err != nil {
+			return true, err
+		}
+	}
+
+	return false, nil
+}
+
+func (r *AuthentikServerReconciler) reconcileComponents(ctx context.Context, server *authentikv1alpha1.AuthentikServer) error {
+	bootstrapSecretName := fmt.Sprintf("%s-bootstrap", server.Name)
+
+	if err := r.reconcileRedis(ctx, server); err != nil {
+		r.setCondition(server, "RedisReady", metav1.ConditionFalse, "ReconcileFailed", err.Error())
+		return err
+	}
+	r.setCondition(server, "RedisReady", metav1.ConditionTrue, "Reconciled", "Redis is ready")
+
+	if err := r.reconcileBootstrapSecret(ctx, server, bootstrapSecretName); err != nil {
+		r.setCondition(server, "BootstrapSecretReady", metav1.ConditionFalse, "ReconcileFailed", err.Error())
+		return err
+	}
+	r.setCondition(server, "BootstrapSecretReady", metav1.ConditionTrue, "Reconciled", "Bootstrap secret is ready")
+	server.Status.BootstrapSecretRef = bootstrapSecretName
+
+	if err := r.reconcileAuthentikServerDeployment(ctx, server, bootstrapSecretName); err != nil {
+		r.setCondition(server, "ServerDeploymentReady", metav1.ConditionFalse, "ReconcileFailed", err.Error())
+		return err
+	}
+
+	if err := r.reconcileAuthentikWorkerDeployment(ctx, server, bootstrapSecretName); err != nil {
+		r.setCondition(server, "WorkerDeploymentReady", metav1.ConditionFalse, "ReconcileFailed", err.Error())
+		return err
+	}
+
+	r.cleanupOldDeployment(ctx, server)
+
+	if err := r.reconcileService(ctx, server); err != nil {
+		return err
+	}
+
+	if err := r.reconcileIngress(ctx, server); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *AuthentikServerReconciler) cleanupOldDeployment(ctx context.Context, server *authentikv1alpha1.AuthentikServer) {
+	log := logf.FromContext(ctx)
+	oldDeployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, types.NamespacedName{Name: server.Name, Namespace: server.Namespace}, oldDeployment); err == nil {
+		if metav1.IsControlledBy(oldDeployment, server) && oldDeployment.Labels["app.kubernetes.io/component"] == "" {
+			log.Info("Deleting old Authentik deployment", "name", oldDeployment.Name)
+			if err := r.Delete(ctx, oldDeployment); err != nil {
+				log.Error(err, "Failed to delete old Authentik deployment")
+			}
+		}
+	}
+}
+
+func (r *AuthentikServerReconciler) checkDeploymentStatus(ctx context.Context, server *authentikv1alpha1.AuthentikServer) (bool, error) {
+	serverDeployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-server", server.Name), Namespace: server.Namespace}, serverDeployment); err != nil {
+		return false, err
+	}
+
+	workerDeployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-worker", server.Name), Namespace: server.Namespace}, workerDeployment); err != nil {
+		return false, err
+	}
+
+	if serverDeployment.Status.ReadyReplicas > 0 {
+		r.setCondition(server, "ServerDeploymentReady", metav1.ConditionTrue, "Reconciled", "Server deployment is ready")
+	} else {
+		r.setCondition(server, "ServerDeploymentReady", metav1.ConditionFalse, "Pending", "Waiting for server deployment to be ready")
+	}
+
+	if workerDeployment.Status.ReadyReplicas > 0 {
+		r.setCondition(server, "WorkerDeploymentReady", metav1.ConditionTrue, "Reconciled", "Worker deployment is ready")
+	} else {
+		r.setCondition(server, "WorkerDeploymentReady", metav1.ConditionFalse, "Pending", "Waiting for worker deployment to be ready")
+	}
+
+	scheme := "http"
+	if server.Spec.TLS != nil && server.Spec.TLS.Enabled {
+		scheme = "https"
+	}
+	server.Status.URL = fmt.Sprintf("%s://%s", scheme, server.Spec.Host)
+	server.Status.Ready = serverDeployment.Status.ReadyReplicas > 0 && workerDeployment.Status.ReadyReplicas > 0
+
+	return server.Status.Ready, nil
+}
+
+func (r *AuthentikServerReconciler) applyDefaults(server *authentikv1alpha1.AuthentikServer) {
+	if server.Spec.Image == "" {
+		server.Spec.Image = "ghcr.io/goauthentik/server:latest"
+	}
+	if server.Spec.Replicas == nil {
+		server.Spec.Replicas = ptr.To(int32(1))
 	}
 }
 

@@ -163,13 +163,22 @@ var _ = Describe("AuthentikServer Controller", func() {
 				}, redisService)
 			}, timeout, interval).Should(Succeed())
 
-			By("Checking that the Authentik deployment was created")
-			authentikDeployment := &appsv1.Deployment{}
+			By("Checking that the Authentik server deployment was created")
+			authentikServerDeployment := &appsv1.Deployment{}
 			Eventually(func() error {
 				return k8sClient.Get(ctx, types.NamespacedName{
-					Name:      resourceName,
+					Name:      resourceName + "-server",
 					Namespace: resourceNamespace,
-				}, authentikDeployment)
+				}, authentikServerDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			By("Checking that the Authentik worker deployment was created")
+			authentikWorkerDeployment := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      resourceName + "-worker",
+					Namespace: resourceNamespace,
+				}, authentikWorkerDeployment)
 			}, timeout, interval).Should(Succeed())
 
 			By("Checking that the Authentik service was created")
