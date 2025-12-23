@@ -33,15 +33,21 @@ type Client struct {
 }
 
 // NewClient creates a new Authentik API client
-func NewClient(baseURL, token string, insecureSkipVerify bool) *Client {
-	baseURL = strings.TrimSuffix(baseURL, "/")
-	if !strings.HasSuffix(baseURL, "/api/v3") {
-		baseURL = baseURL + "/api/v3"
+func NewClient(baseURL, token string, insecureSkipVerify bool, serviceURL string) *Client {
+	// If serviceURL is provided, use it for API calls
+	apiURL := baseURL
+	if serviceURL != "" {
+		apiURL = serviceURL
+	}
+
+	apiURL = strings.TrimSuffix(apiURL, "/")
+	if !strings.HasSuffix(apiURL, "/api/v3") {
+		apiURL = apiURL + "/api/v3"
 	}
 
 	cfg := api.NewConfiguration()
 	cfg.Servers = api.ServerConfigurations{
-		{URL: baseURL},
+		{URL: apiURL},
 	}
 	cfg.AddDefaultHeader("Authorization", fmt.Sprintf("Bearer %s", token))
 
