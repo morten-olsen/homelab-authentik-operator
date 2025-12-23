@@ -131,9 +131,9 @@ func buildRedirectURIs(uris []string) []api.RedirectURIRequest {
 }
 
 // CreateOAuth2Provider creates a new OAuth2 provider
-func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowSlug, invalidationFlowSlug string, redirectURIs []string, clientType string, propertyMappings []string) (*api.OAuth2Provider, error) {
+func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowUUID, invalidationFlowUUID string, redirectURIs []string, clientType string, propertyMappings []string) (*api.OAuth2Provider, error) {
 	redirectURIRequests := buildRedirectURIs(redirectURIs)
-	req := api.NewOAuth2ProviderRequest(name, authFlowSlug, invalidationFlowSlug, redirectURIRequests)
+	req := api.NewOAuth2ProviderRequest(name, authFlowUUID, invalidationFlowUUID, redirectURIRequests)
 
 	if clientType == "public" {
 		req.SetClientType(api.CLIENTTYPEENUM_PUBLIC)
@@ -151,8 +151,8 @@ func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowSlug, i
 		if resp != nil && resp.Body != nil {
 			if body, readErr := io.ReadAll(resp.Body); readErr == nil {
 				errorMsg = fmt.Sprintf(" (response body: %s)", string(body))
-				resp.Body.Close()
 			}
+			_ = resp.Body.Close()
 		}
 		// Include the original error which may already contain response details
 		return nil, fmt.Errorf("failed to create OAuth2 provider: %w%s", err, errorMsg)
@@ -188,9 +188,9 @@ func (c *Client) GetOAuth2ProviderByName(ctx context.Context, name string) (*api
 }
 
 // UpdateOAuth2Provider updates an existing OAuth2 provider
-func (c *Client) UpdateOAuth2Provider(ctx context.Context, id int32, name, authFlowSlug, invalidationFlowSlug string, redirectURIs []string, clientType string, propertyMappings []string) (*api.OAuth2Provider, error) {
+func (c *Client) UpdateOAuth2Provider(ctx context.Context, id int32, name, authFlowUUID, invalidationFlowUUID string, redirectURIs []string, clientType string, propertyMappings []string) (*api.OAuth2Provider, error) {
 	redirectURIRequests := buildRedirectURIs(redirectURIs)
-	req := api.NewOAuth2ProviderRequest(name, authFlowSlug, invalidationFlowSlug, redirectURIRequests)
+	req := api.NewOAuth2ProviderRequest(name, authFlowUUID, invalidationFlowUUID, redirectURIRequests)
 
 	if clientType == "public" {
 		req.SetClientType(api.CLIENTTYPEENUM_PUBLIC)
