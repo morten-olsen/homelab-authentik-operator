@@ -46,15 +46,75 @@ spec:
                 default: ghcr.io/goauthentik/server:latest
                 description: image is the Authentik container image to use
                 type: string
-              postgresSecretRef:
-                description: |-
-                  postgresSecretRef references a secret containing the PostgreSQL connection URL.
-                  The secret must have a key (default: "url") with the connection string.
+              postgresHost:
+                description: postgresHost is the PostgreSQL host
+                type: string
+              postgresHostSecretRef:
+                description: postgresHostSecretRef references a secret containing
+                  the PostgreSQL host
                 properties:
                   key:
-                    default: url
-                    description: key is the key in the secret to use. Defaults to
-                      "url" for postgres secrets.
+                    description: key is the key in the secret to use.
+                    type: string
+                  name:
+                    description: name is the name of the secret
+                    type: string
+                  namespace:
+                    description: namespace is the namespace of the secret. If not
+                      specified, uses the same namespace as the resource.
+                    type: string
+                required:
+                - name
+                type: object
+              postgresName:
+                description: postgresName is the PostgreSQL database name
+                type: string
+              postgresNameSecretRef:
+                description: postgresNameSecretRef references a secret containing
+                  the PostgreSQL database name
+                properties:
+                  key:
+                    description: key is the key in the secret to use.
+                    type: string
+                  name:
+                    description: name is the name of the secret
+                    type: string
+                  namespace:
+                    description: namespace is the namespace of the secret. If not
+                      specified, uses the same namespace as the resource.
+                    type: string
+                required:
+                - name
+                type: object
+              postgresPassword:
+                description: postgresPassword is the PostgreSQL password
+                type: string
+              postgresPasswordSecretRef:
+                description: postgresPasswordSecretRef references a secret containing
+                  the PostgreSQL password
+                properties:
+                  key:
+                    description: key is the key in the secret to use.
+                    type: string
+                  name:
+                    description: name is the name of the secret
+                    type: string
+                  namespace:
+                    description: namespace is the namespace of the secret. If not
+                      specified, uses the same namespace as the resource.
+                    type: string
+                required:
+                - name
+                type: object
+              postgresUser:
+                description: postgresUser is the PostgreSQL user
+                type: string
+              postgresUserSecretRef:
+                description: postgresUserSecretRef references a secret containing
+                  the PostgreSQL user
+                properties:
+                  key:
+                    description: key is the key in the secret to use.
                     type: string
                   name:
                     description: name is the name of the secret
@@ -88,7 +148,6 @@ spec:
                 type: object
             required:
             - host
-            - postgresSecretRef
             type: object
           status:
             description: status defines the observed state of AuthentikServer

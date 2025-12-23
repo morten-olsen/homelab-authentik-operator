@@ -64,7 +64,10 @@ var _ = Describe("AuthentikClient Controller", func() {
 					Namespace: resourceNamespace,
 				},
 				StringData: map[string]string{
-					"url": "postgresql://user:pass@localhost:5432/authentik",
+					"host":     "localhost",
+					"user":     "authentik",
+					"name":     "authentik",
+					"password": "authentik-password",
 				},
 			}
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: postgresSecret, Namespace: resourceNamespace}, &corev1.Secret{})
@@ -82,9 +85,21 @@ var _ = Describe("AuthentikClient Controller", func() {
 						Namespace: resourceNamespace,
 					},
 					Spec: authentikv1alpha1.AuthentikServerSpec{
-						PostgresSecretRef: authentikv1alpha1.SecretKeyReference{
+						PostgresHostSecretRef: &authentikv1alpha1.SecretKeyReference{
 							Name: postgresSecret,
-							Key:  "url",
+							Key:  "host",
+						},
+						PostgresUserSecretRef: &authentikv1alpha1.SecretKeyReference{
+							Name: postgresSecret,
+							Key:  "user",
+						},
+						PostgresNameSecretRef: &authentikv1alpha1.SecretKeyReference{
+							Name: postgresSecret,
+							Key:  "name",
+						},
+						PostgresPasswordSecretRef: &authentikv1alpha1.SecretKeyReference{
+							Name: postgresSecret,
+							Key:  "password",
 						},
 						Host: testHost,
 					},
