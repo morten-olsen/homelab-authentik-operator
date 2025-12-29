@@ -93,7 +93,7 @@ var _ = Describe("AuthentikClient Controller", func() {
 							Name: postgresSecret,
 							Key:  "user",
 						},
-						PostgresNameSecretRef: &authentikv1alpha1.SecretKeyReference{
+						PostgresDatabaseSecretRef: &authentikv1alpha1.SecretKeyReference{
 							Name: postgresSecret,
 							Key:  "name",
 						},

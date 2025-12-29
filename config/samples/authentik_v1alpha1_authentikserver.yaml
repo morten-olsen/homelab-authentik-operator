@@ -14,7 +14,7 @@ spec:
   postgresUserSecretRef:
     name: postgres-credentials
     key: user
-  postgresNameSecretRef:
+  postgresDatabaseSecretRef:
     name: postgres-credentials
     key: name
   postgresPasswordSecretRef:

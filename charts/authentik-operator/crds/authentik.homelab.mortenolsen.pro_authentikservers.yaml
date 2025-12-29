@@ -46,12 +46,12 @@ spec:
                 default: ghcr.io/goauthentik/server:latest
                 description: image is the Authentik container image to use
                 type: string
-              postgresHost:
-                description: postgresHost is the PostgreSQL host
+              postgresDatabase:
+                description: postgresDatabase is the PostgreSQL database name
                 type: string
-              postgresHostSecretRef:
-                description: postgresHostSecretRef references a secret containing
-                  the PostgreSQL host
+              postgresDatabaseSecretRef:
+                description: postgresDatabaseSecretRef references a secret containing
+                  the PostgreSQL database name
                 properties:
                   key:
                     description: key is the key in the secret to use.
@@ -66,12 +66,12 @@ spec:
                 required:
                 - name
                 type: object
-              postgresName:
-                description: postgresName is the PostgreSQL database name
+              postgresHost:
+                description: postgresHost is the PostgreSQL host
                 type: string
-              postgresNameSecretRef:
-                description: postgresNameSecretRef references a secret containing
-                  the PostgreSQL database name
+              postgresHostSecretRef:
+                description: postgresHostSecretRef references a secret containing
+                  the PostgreSQL host
                 properties:
                   key:
                     description: key is the key in the secret to use.
@@ -132,20 +132,6 @@ spec:
                 format: int32
                 minimum: 1
                 type: integer
-              tls:
-                description: tls configures TLS for the Ingress
-                properties:
-                  enabled:
-                    default: false
-                    description: enabled specifies whether TLS should be enabled
-                    type: boolean
-                  secretName:
-                    description: secretName is the name of the secret containing TLS
-                      certificate and key
-                    type: string
-                required:
-                - enabled
-                type: object
             required:
             - host
             type: object

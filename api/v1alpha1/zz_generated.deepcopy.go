@@ -204,8 +204,8 @@ func (in *AuthentikServerSpec) DeepCopyInto(out *AuthentikServerSpec) {
 		*out = new(SecretKeyReference)
 		**out = **in
 	}
-	if in.PostgresNameSecretRef != nil {
-		in, out := &in.PostgresNameSecretRef, &out.PostgresNameSecretRef
+	if in.PostgresDatabaseSecretRef != nil {
+		in, out := &in.PostgresDatabaseSecretRef, &out.PostgresDatabaseSecretRef
 		*out = new(SecretKeyReference)
 		**out = **in
 	}

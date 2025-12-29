@@ -53,13 +53,13 @@ type AuthentikServerSpec struct {
 	// +optional
 	PostgresUserSecretRef *SecretKeyReference `json:"postgresUserSecretRef,omitempty"`
 
-	// postgresName is the PostgreSQL database name
+	// postgresDatabase is the PostgreSQL database name
 	// +optional
-	PostgresName string `json:"postgresName,omitempty"`
+	PostgresDatabase string `json:"postgresDatabase,omitempty"`
 
-	// postgresNameSecretRef references a secret containing the PostgreSQL database name
+	// postgresDatabaseSecretRef references a secret containing the PostgreSQL database name
 	// +optional
-	PostgresNameSecretRef *SecretKeyReference `json:"postgresNameSecretRef,omitempty"`
+	PostgresDatabaseSecretRef *SecretKeyReference `json:"postgresDatabaseSecretRef,omitempty"`
 
 	// postgresPassword is the PostgreSQL password
 	// +optional

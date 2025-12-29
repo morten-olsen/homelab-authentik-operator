@@ -401,7 +401,7 @@ func (r *AuthentikServerReconciler) getCommonEnv(server *authentikv1alpha1.Authe
 	return []corev1.EnvVar{
 		r.getEnvVar("AUTHENTIK_POSTGRESQL__HOST", server.Spec.PostgresHost, server.Spec.PostgresHostSecretRef),
 		r.getEnvVar("AUTHENTIK_POSTGRESQL__USER", server.Spec.PostgresUser, server.Spec.PostgresUserSecretRef),
-		r.getEnvVar("AUTHENTIK_POSTGRESQL__NAME", server.Spec.PostgresName, server.Spec.PostgresNameSecretRef),
+		r.getEnvVar("AUTHENTIK_POSTGRESQL__NAME", server.Spec.PostgresDatabase, server.Spec.PostgresDatabaseSecretRef),
 		r.getEnvVar("AUTHENTIK_POSTGRESQL__PASSWORD", server.Spec.PostgresPassword, server.Spec.PostgresPasswordSecretRef),
 		{
 			Name:  "AUTHENTIK_REDIS__HOST",

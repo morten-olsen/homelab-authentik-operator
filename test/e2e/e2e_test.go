@@ -307,7 +307,7 @@ spec:
   postgresUserSecretRef:
     name: e2e-postgres-secret
     key: user
-  postgresNameSecretRef:
+  postgresDatabaseSecretRef:
     name: e2e-postgres-secret
     key: name
   postgresPasswordSecretRef:
@@ -418,7 +418,7 @@ spec:
   postgresUserSecretRef:
     name: e2e-postgres-secret-client
     key: user
-  postgresNameSecretRef:
+  postgresDatabaseSecretRef:
     name: e2e-postgres-secret-client
     key: name
   postgresPasswordSecretRef:
