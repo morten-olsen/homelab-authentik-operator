@@ -26,7 +26,3 @@ spec:
   # image: ghcr.io/goauthentik/server:latest
   # Optional: Number of replicas
   # replicas: 1
-  # Optional: TLS configuration
-  tls:
-    enabled: true
-    secretName: auth-tls

@@ -61,6 +61,17 @@ type AuthentikClientSpec struct {
 	// Defaults to <client-name>-oidc-credentials
 	// +optional
 	SecretName string `json:"secretName,omitempty"`
+
+	// authentikUrl is the base URL for the Authentik server API and OIDC endpoints.
+	// If provided, this URL is used instead of constructing from the AuthentikServer's host.
+	// Example: http://my-server:7000
+	// +optional
+	AuthentikURL string `json:"authentikUrl,omitempty"`
+
+	// clientId is the OAuth2 client ID to use.
+	// If provided, this client ID will be used instead of the randomly generated one.
+	// +optional
+	ClientID string `json:"clientId,omitempty"`
 }
 
 // AuthentikClientStatus defines the observed state of AuthentikClient.

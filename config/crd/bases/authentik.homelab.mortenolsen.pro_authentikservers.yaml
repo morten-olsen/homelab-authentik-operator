@@ -132,20 +132,6 @@ spec:
                 format: int32
                 minimum: 1
                 type: integer
-              tls:
-                description: tls configures TLS for the Ingress
-                properties:
-                  enabled:
-                    default: false
-                    description: enabled specifies whether TLS should be enabled
-                    type: boolean
-                  secretName:
-                    description: secretName is the name of the secret containing TLS
-                      certificate and key
-                    type: string
-                required:
-                - enabled
-                type: object
             required:
             - host
             type: object

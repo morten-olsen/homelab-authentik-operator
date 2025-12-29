@@ -134,8 +134,13 @@ func (r *AuthentikClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	r.setCondition(oidcClient, "BootstrapSecretReady", metav1.ConditionTrue, "TokenFound", "Bootstrap token found")
 
 	// Create Authentik API client
-	// Use internal service URL for in-cluster communication
-	serverURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:9000", server.Name, server.Namespace)
+	// Use authentikUrl if provided, otherwise use internal service URL for in-cluster communication
+	var serverURL string
+	if oidcClient.Spec.AuthentikURL != "" {
+		serverURL = oidcClient.Spec.AuthentikURL
+	} else {
+		serverURL = fmt.Sprintf("http://%s.%s.svc.cluster.local:9000", server.Name, server.Namespace)
+	}
 	apiClient := authentik.NewClient(serverURL, token, true, "")
 
 	return r.reconcileNormal(ctx, oidcClient, server, apiClient)
@@ -158,7 +163,12 @@ func (r *AuthentikClientReconciler) handleDeletion(ctx context.Context, oidcClie
 			if err := r.Get(ctx, bootstrapSecretKey, bootstrapSecret); err == nil {
 				token := string(bootstrapSecret.Data["token"])
 				if token != "" {
-					serverURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:9000", server.Name, server.Namespace)
+					var serverURL string
+					if oidcClient.Spec.AuthentikURL != "" {
+						serverURL = oidcClient.Spec.AuthentikURL
+					} else {
+						serverURL = fmt.Sprintf("http://%s.%s.svc.cluster.local:9000", server.Name, server.Namespace)
+					}
 					apiClient := authentik.NewClient(serverURL, token, true, "")
 					// Delete resources from Authentik
 					r.cleanupAuthentikResources(ctx, oidcClient, apiClient)
@@ -228,7 +238,7 @@ func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcCli
 
 	if provider == nil {
 		// Create new provider
-		provider, err = apiClient.CreateOAuth2Provider(ctx, providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings)
+		provider, err = apiClient.CreateOAuth2Provider(ctx, providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings, oidcClient.Spec.ClientID)
 		if err != nil {
 			log.Error(err, "Failed to create OAuth2 provider")
 			r.setCondition(oidcClient, "ProviderReady", metav1.ConditionFalse, "CreateFailed", err.Error())
@@ -240,7 +250,7 @@ func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcCli
 		log.Info("Created OAuth2 provider", "name", providerName, "pk", provider.GetPk())
 	} else {
 		// Update existing provider
-		provider, err = apiClient.UpdateOAuth2Provider(ctx, provider.GetPk(), providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings)
+		provider, err = apiClient.UpdateOAuth2Provider(ctx, provider.GetPk(), providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings, oidcClient.Spec.ClientID)
 		if err != nil {
 			log.Error(err, "Failed to update OAuth2 provider")
 			r.setCondition(oidcClient, "ProviderReady", metav1.ConditionFalse, "UpdateFailed", err.Error())
@@ -329,7 +339,13 @@ func (r *AuthentikClientReconciler) reconcileApplication(ctx context.Context, oi
 func (r *AuthentikClientReconciler) reconcileCredentialsSecret(ctx context.Context, oidcClient *authentikv1alpha1.AuthentikClient, secretName string, server *authentikv1alpha1.AuthentikServer, provider *api.OAuth2Provider) error {
 	log := logf.FromContext(ctx)
 	// Build OIDC URLs
-	baseURL := server.Status.URL
+	// Use authentikUrl if provided, otherwise use server.Status.URL
+	var baseURL string
+	if oidcClient.Spec.AuthentikURL != "" {
+		baseURL = oidcClient.Spec.AuthentikURL
+	} else {
+		baseURL = server.Status.URL
+	}
 	appSlug := slugify(fmt.Sprintf("%s-%s", oidcClient.Namespace, oidcClient.Name))
 	issuer := fmt.Sprintf("%s/application/o/%s/", baseURL, appSlug)
 	authorizationURL := fmt.Sprintf("%s/application/o/authorize/", baseURL)

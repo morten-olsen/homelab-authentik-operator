@@ -25,7 +25,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,7 +56,6 @@ type AuthentikServerReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 
 func (r *AuthentikServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -496,66 +494,6 @@ func (r *AuthentikServerReconciler) reconcileService(ctx context.Context, server
 	return err
 }
 
-func (r *AuthentikServerReconciler) reconcileIngress(ctx context.Context, server *authentikv1alpha1.AuthentikServer) error {
-	labels := map[string]string{
-		"app.kubernetes.io/name":       "authentik",
-		"app.kubernetes.io/instance":   server.Name,
-		"app.kubernetes.io/component":  "server",
-		"app.kubernetes.io/managed-by": "authentik-operator",
-	}
-
-	ingress := &networkingv1.Ingress{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      server.Name,
-			Namespace: server.Namespace,
-		},
-	}
-
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ingress, func() error {
-		ingress.Labels = labels
-		pathType := networkingv1.PathTypePrefix
-
-		ingress.Spec = networkingv1.IngressSpec{
-			Rules: []networkingv1.IngressRule{
-				{
-					Host: server.Spec.Host,
-					IngressRuleValue: networkingv1.IngressRuleValue{
-						HTTP: &networkingv1.HTTPIngressRuleValue{
-							Paths: []networkingv1.HTTPIngressPath{
-								{
-									Path:     "/",
-									PathType: &pathType,
-									Backend: networkingv1.IngressBackend{
-										Service: &networkingv1.IngressServiceBackend{
-											Name: server.Name,
-											Port: networkingv1.ServiceBackendPort{
-												Number: 9000,
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-
-		if server.Spec.TLS != nil && server.Spec.TLS.Enabled {
-			ingress.Spec.TLS = []networkingv1.IngressTLS{
-				{
-					Hosts:      []string{server.Spec.Host},
-					SecretName: server.Spec.TLS.SecretName,
-				},
-			}
-		}
-
-		return controllerutil.SetControllerReference(server, ingress, r.Scheme)
-	})
-
-	return err
-}
-
 func (r *AuthentikServerReconciler) setCondition(server *authentikv1alpha1.AuthentikServer, conditionType string, status metav1.ConditionStatus, reason, message string) {
 	meta.SetStatusCondition(&server.Status.Conditions, metav1.Condition{
 		Type:               conditionType,
@@ -649,10 +587,6 @@ func (r *AuthentikServerReconciler) reconcileComponents(ctx context.Context, ser
 		return err
 	}
 
-	if err := r.reconcileIngress(ctx, server); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -692,11 +626,7 @@ func (r *AuthentikServerReconciler) checkDeploymentStatus(ctx context.Context, s
 		r.setCondition(server, "WorkerDeploymentReady", metav1.ConditionFalse, "Pending", "Waiting for worker deployment to be ready")
 	}
 
-	scheme := "http"
-	if server.Spec.TLS != nil && server.Spec.TLS.Enabled {
-		scheme = "https"
-	}
-	server.Status.URL = fmt.Sprintf("%s://%s", scheme, server.Spec.Host)
+	server.Status.URL = fmt.Sprintf("http://%s", server.Spec.Host)
 	server.Status.Ready = serverDeployment.Status.ReadyReplicas > 0 && workerDeployment.Status.ReadyReplicas > 0
 
 	return server.Status.Ready, nil
@@ -718,7 +648,6 @@ func (r *AuthentikServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
-		Owns(&networkingv1.Ingress{}).
 		Named("authentikserver").
 		Complete(r)
 }

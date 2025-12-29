@@ -374,16 +374,6 @@ spec:
 			}
 			Eventually(verifyAuthentikService, 60*time.Second, time.Second).Should(Succeed())
 
-			By("verifying that the Ingress was created")
-			verifyIngress := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "ingress", "e2e-test-server",
-					"-n", namespace, "-o", "jsonpath={.spec.rules[0].host}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("auth.e2e-test.local"))
-			}
-			Eventually(verifyIngress, 60*time.Second, time.Second).Should(Succeed())
-
 			By("verifying that the status URL is set")
 			verifyStatusURL := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "authentikserver", "e2e-test-server",

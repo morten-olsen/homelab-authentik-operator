@@ -35,17 +35,6 @@ type SecretKeyReference struct {
 	Key string `json:"key,omitempty"`
 }
 
-// TLSConfig defines TLS configuration for the Ingress
-type TLSConfig struct {
-	// enabled specifies whether TLS should be enabled
-	// +kubebuilder:default=false
-	Enabled bool `json:"enabled"`
-
-	// secretName is the name of the secret containing TLS certificate and key
-	// +optional
-	SecretName string `json:"secretName,omitempty"`
-}
-
 // AuthentikServerSpec defines the desired state of AuthentikServer
 type AuthentikServerSpec struct {
 	// postgresHost is the PostgreSQL host
@@ -94,10 +83,6 @@ type AuthentikServerSpec struct {
 	// host is the external hostname for Authentik
 	// +kubebuilder:validation:Required
 	Host string `json:"host"`
-
-	// tls configures TLS for the Ingress
-	// +optional
-	TLS *TLSConfig `json:"tls,omitempty"`
 }
 
 // AuthentikServerStatus defines the observed state of AuthentikServer.

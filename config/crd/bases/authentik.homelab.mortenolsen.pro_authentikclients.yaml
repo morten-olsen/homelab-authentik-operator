@@ -39,6 +39,17 @@ spec:
           spec:
             description: spec defines the desired state of AuthentikClient
             properties:
+              authentikUrl:
+                description: |-
+                  authentikUrl is the base URL for the Authentik server API and OIDC endpoints.
+                  If provided, this URL is used instead of constructing from the AuthentikServer's host.
+                  Example: http://my-server:7000
+                type: string
+              clientId:
+                description: |-
+                  clientId is the OAuth2 client ID to use.
+                  If provided, this client ID will be used instead of the randomly generated one.
+                type: string
               clientType:
                 default: confidential
                 description: clientType is the OAuth2 client type (confidential or
