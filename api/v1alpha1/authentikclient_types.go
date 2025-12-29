@@ -72,6 +72,15 @@ type AuthentikClientSpec struct {
 	// If provided, this client ID will be used instead of the randomly generated one.
 	// +optional
 	ClientID string `json:"clientId,omitempty"`
+
+	// subjectMode is the subject mode for the OAuth2 provider.
+	// Determines how the subject (user identifier) is generated in tokens.
+	// Valid values: hashed_user_id, user_id, user_uuid, user_username, user_email, user_upn
+	// Defaults to hashed_user_id if not specified.
+	// +optional
+	// +kubebuilder:default="hashed_user_id"
+	// +kubebuilder:validation:Enum=hashed_user_id;user_id;user_uuid;user_username;user_email;user_upn
+	SubjectMode string `json:"subjectMode,omitempty"`
 }
 
 // AuthentikClientStatus defines the observed state of AuthentikClient.

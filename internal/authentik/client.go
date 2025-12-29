@@ -131,7 +131,7 @@ func buildRedirectURIs(uris []string) []api.RedirectURIRequest {
 }
 
 // CreateOAuth2Provider creates a new OAuth2 provider
-func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowUUID, invalidationFlowUUID string, redirectURIs []string, clientType string, propertyMappings []string, clientId string) (*api.OAuth2Provider, error) {
+func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowUUID, invalidationFlowUUID string, redirectURIs []string, clientType string, propertyMappings []string, clientId string, subjectMode string) (*api.OAuth2Provider, error) {
 	redirectURIRequests := buildRedirectURIs(redirectURIs)
 	req := api.NewOAuth2ProviderRequest(name, authFlowUUID, invalidationFlowUUID, redirectURIRequests)
 
@@ -144,6 +144,15 @@ func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowUUID, i
 	// Set client ID if provided
 	if clientId != "" {
 		req.SetClientId(clientId)
+	}
+
+	// Set subject mode if provided
+	if subjectMode != "" {
+		subMode, err := api.NewSubModeEnumFromValue(subjectMode)
+		if err != nil {
+			return nil, fmt.Errorf("invalid subject mode: %w", err)
+		}
+		req.SetSubMode(*subMode)
 	}
 
 	// Always set property mappings, even if empty, to ensure proper API behavior
@@ -193,7 +202,7 @@ func (c *Client) GetOAuth2ProviderByName(ctx context.Context, name string) (*api
 }
 
 // UpdateOAuth2Provider updates an existing OAuth2 provider
-func (c *Client) UpdateOAuth2Provider(ctx context.Context, id int32, name, authFlowUUID, invalidationFlowUUID string, redirectURIs []string, clientType string, propertyMappings []string, clientId string) (*api.OAuth2Provider, error) {
+func (c *Client) UpdateOAuth2Provider(ctx context.Context, id int32, name, authFlowUUID, invalidationFlowUUID string, redirectURIs []string, clientType string, propertyMappings []string, clientId string, subjectMode string) (*api.OAuth2Provider, error) {
 	redirectURIRequests := buildRedirectURIs(redirectURIs)
 	req := api.NewOAuth2ProviderRequest(name, authFlowUUID, invalidationFlowUUID, redirectURIRequests)
 
@@ -206,6 +215,15 @@ func (c *Client) UpdateOAuth2Provider(ctx context.Context, id int32, name, authF
 	// Set client ID if provided
 	if clientId != "" {
 		req.SetClientId(clientId)
+	}
+
+	// Set subject mode if provided
+	if subjectMode != "" {
+		subMode, err := api.NewSubModeEnumFromValue(subjectMode)
+		if err != nil {
+			return nil, fmt.Errorf("invalid subject mode: %w", err)
+		}
+		req.SetSubMode(*subMode)
 	}
 
 	// Always set property mappings, even if empty, to ensure proper API behavior

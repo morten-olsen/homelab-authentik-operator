@@ -236,9 +236,15 @@ func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcCli
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
+	// Set default subject mode if not specified
+	subjectMode := oidcClient.Spec.SubjectMode
+	if subjectMode == "" {
+		subjectMode = "hashed_user_id"
+	}
+
 	if provider == nil {
 		// Create new provider
-		provider, err = apiClient.CreateOAuth2Provider(ctx, providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings, oidcClient.Spec.ClientID)
+		provider, err = apiClient.CreateOAuth2Provider(ctx, providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings, oidcClient.Spec.ClientID, subjectMode)
 		if err != nil {
 			log.Error(err, "Failed to create OAuth2 provider")
 			r.setCondition(oidcClient, "ProviderReady", metav1.ConditionFalse, "CreateFailed", err.Error())
@@ -250,7 +256,7 @@ func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcCli
 		log.Info("Created OAuth2 provider", "name", providerName, "pk", provider.GetPk())
 	} else {
 		// Update existing provider
-		provider, err = apiClient.UpdateOAuth2Provider(ctx, provider.GetPk(), providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings, oidcClient.Spec.ClientID)
+		provider, err = apiClient.UpdateOAuth2Provider(ctx, provider.GetPk(), providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings, oidcClient.Spec.ClientID, subjectMode)
 		if err != nil {
 			log.Error(err, "Failed to update OAuth2 provider")
 			r.setCondition(oidcClient, "ProviderReady", metav1.ConditionFalse, "UpdateFailed", err.Error())

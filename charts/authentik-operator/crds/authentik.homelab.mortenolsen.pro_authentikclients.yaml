@@ -95,6 +95,21 @@ spec:
                 - name
                 - namespace
                 type: object
+              subjectMode:
+                default: hashed_user_id
+                description: |-
+                  subjectMode is the subject mode for the OAuth2 provider.
+                  Determines how the subject (user identifier) is generated in tokens.
+                  Valid values: hashed_user_id, user_id, user_uuid, user_username, user_email, user_upn
+                  Defaults to hashed_user_id if not specified.
+                enum:
+                - hashed_user_id
+                - user_id
+                - user_uuid
+                - user_username
+                - user_email
+                - user_upn
+                type: string
             required:
             - name
             - redirectUris
