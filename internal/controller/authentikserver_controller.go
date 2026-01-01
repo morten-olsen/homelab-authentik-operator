@@ -626,7 +626,7 @@ func (r *AuthentikServerReconciler) checkDeploymentStatus(ctx context.Context, s
 		r.setCondition(server, "WorkerDeploymentReady", metav1.ConditionFalse, "Pending", "Waiting for worker deployment to be ready")
 	}
 
-	server.Status.URL = fmt.Sprintf("http://%s", server.Spec.Host)
+	server.Status.URL = fmt.Sprintf("https://%s", server.Spec.Host)
 	server.Status.Ready = serverDeployment.Status.ReadyReplicas > 0 && workerDeployment.Status.ReadyReplicas > 0
 
 	return server.Status.Ready, nil
