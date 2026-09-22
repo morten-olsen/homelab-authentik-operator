@@ -57,6 +57,17 @@ type AuthentikClientSpec struct {
 	// +kubebuilder:default={"openid","profile","email"}
 	Scopes []string `json:"scopes,omitempty"`
 
+	// grantTypes are the allowed OAuth2 grant types for the provider.
+	// Defaults to Authentik's standard interactive and machine grant set.
+	// +optional
+	GrantTypes []string `json:"grantTypes,omitempty"`
+
+	// signingKeyName is the Authentik certificate/keypair name used to sign tokens.
+	// When unset, Authentik signs tokens with the provider client secret (HS256).
+	// Set this to a certificate/keypair name for RS256 clients.
+	// +optional
+	SigningKeyName string `json:"signingKeyName,omitempty"`
+
 	// secretName is the name of the secret to create with OIDC credentials.
 	// Defaults to <client-name>-oidc-credentials
 	// +optional

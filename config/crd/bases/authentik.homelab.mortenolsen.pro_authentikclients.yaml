@@ -58,6 +58,13 @@ spec:
                 - confidential
                 - public
                 type: string
+              grantTypes:
+                description: |-
+                  grantTypes are the allowed OAuth2 grant types for the provider.
+                  Defaults to Authentik's standard interactive and machine grant set.
+                items:
+                  type: string
+                type: array
               name:
                 description: name is the display name for the OAuth2 client in Authentik
                 type: string
@@ -95,6 +102,12 @@ spec:
                 - name
                 - namespace
                 type: object
+              signingKeyName:
+                description: |-
+                  signingKeyName is the Authentik certificate/keypair name used to sign tokens.
+                  When unset, Authentik signs tokens with the provider client secret (HS256).
+                  Set this to a certificate/keypair name for RS256 clients.
+                type: string
               subjectMode:
                 default: hashed_user_id
                 description: |-

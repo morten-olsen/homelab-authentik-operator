@@ -24,6 +24,12 @@ spec:
   #   - openid
   #   - profile
   #   - email
+  # Optional: Allowed OAuth2 grant types. Defaults to Authentik's standard grant set.
+  # grantTypes:
+  #   - authorization_code
+  #   - refresh_token
+  # Optional: Authentik certificate/keypair name used to sign tokens (RS256 clients).
+  # signingKeyName: authentik Self-signed Certificate
   # Optional: Custom name for the credentials secret
   # secretName: my-app-oidc-credentials
 ---

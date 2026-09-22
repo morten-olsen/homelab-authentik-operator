@@ -44,6 +44,16 @@ const (
 	authentikClientFinalizer = "authentik.homelab.mortenolsen.pro/client-finalizer"
 )
 
+var defaultGrantTypes = []string{
+	"authorization_code",
+	"hybrid",
+	"implicit",
+	"client_credentials",
+	"password",
+	"urn:ietf:params:oauth:grant-type:device_code",
+	"refresh_token",
+}
+
 // AuthentikClientReconciler reconciles a AuthentikClient object
 type AuthentikClientReconciler struct {
 	client.Client
@@ -193,6 +203,10 @@ func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcCli
 	if len(oidcClient.Spec.Scopes) == 0 {
 		oidcClient.Spec.Scopes = []string{"openid", "profile", "email"}
 	}
+	grantTypes := oidcClient.Spec.GrantTypes
+	if len(grantTypes) == 0 {
+		grantTypes = defaultGrantTypes
+	}
 
 	// Get the authorization flow
 	authFlow, err := apiClient.GetAuthorizationFlow(ctx)
@@ -244,7 +258,7 @@ func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcCli
 
 	if provider == nil {
 		// Create new provider
-		provider, err = apiClient.CreateOAuth2Provider(ctx, providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings, oidcClient.Spec.ClientID, subjectMode)
+		provider, err = apiClient.CreateOAuth2Provider(ctx, providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings, oidcClient.Spec.ClientID, subjectMode, grantTypes, oidcClient.Spec.SigningKeyName)
 		if err != nil {
 			log.Error(err, "Failed to create OAuth2 provider")
 			r.setCondition(oidcClient, "ProviderReady", metav1.ConditionFalse, "CreateFailed", err.Error())
@@ -256,7 +270,7 @@ func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcCli
 		log.Info("Created OAuth2 provider", "name", providerName, "pk", provider.GetPk())
 	} else {
 		// Update existing provider
-		provider, err = apiClient.UpdateOAuth2Provider(ctx, provider.GetPk(), providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings, oidcClient.Spec.ClientID, subjectMode)
+		provider, err = apiClient.UpdateOAuth2Provider(ctx, provider.GetPk(), providerName, authFlow.GetPk(), invalidationFlow.GetPk(), oidcClient.Spec.RedirectURIs, oidcClient.Spec.ClientType, scopeMappings, oidcClient.Spec.ClientID, subjectMode, grantTypes, oidcClient.Spec.SigningKeyName)
 		if err != nil {
 			log.Error(err, "Failed to update OAuth2 provider")
 			r.setCondition(oidcClient, "ProviderReady", metav1.ConditionFalse, "UpdateFailed", err.Error())

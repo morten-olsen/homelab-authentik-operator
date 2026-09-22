@@ -70,8 +70,7 @@ func NewClient(baseURL, token string, insecureSkipVerify bool, serviceURL string
 
 // GetAuthorizationFlow returns the default authorization flow for OAuth2
 func (c *Client) GetAuthorizationFlow(ctx context.Context) (*api.Flow, error) {
-	designation := "authorization"
-	flows, _, err := c.api.FlowsApi.FlowsInstancesList(ctx).Designation(designation).Execute()
+	flows, _, err := c.api.FlowsAPI.FlowsInstancesList(ctx).Designation(api.FLOWDESIGNATIONENUM_AUTHORIZATION).Execute()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list flows: %w", err)
 	}
@@ -85,8 +84,7 @@ func (c *Client) GetAuthorizationFlow(ctx context.Context) (*api.Flow, error) {
 
 // GetInvalidationFlow returns the default invalidation flow
 func (c *Client) GetInvalidationFlow(ctx context.Context) (*api.Flow, error) {
-	designation := "invalidation"
-	flows, _, err := c.api.FlowsApi.FlowsInstancesList(ctx).Designation(designation).Execute()
+	flows, _, err := c.api.FlowsAPI.FlowsInstancesList(ctx).Designation(api.FLOWDESIGNATIONENUM_INVALIDATION).Execute()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list flows: %w", err)
 	}
@@ -100,7 +98,7 @@ func (c *Client) GetInvalidationFlow(ctx context.Context) (*api.Flow, error) {
 
 // GetScopeMappings returns the property mapping UUIDs for OAuth2 scopes
 func (c *Client) GetScopeMappings(ctx context.Context, scopes []string) ([]string, error) {
-	mappings, _, err := c.api.PropertymappingsApi.PropertymappingsProviderScopeList(ctx).Execute()
+	mappings, _, err := c.api.PropertymappingsAPI.PropertymappingsProviderScopeList(ctx).Execute()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scope mappings: %w", err)
 	}
@@ -130,8 +128,36 @@ func buildRedirectURIs(uris []string) []api.RedirectURIRequest {
 	return result
 }
 
+// GetCertificateKeyPairByName searches for a certificate/keypair by name.
+func (c *Client) GetCertificateKeyPairByName(ctx context.Context, name string) (*api.CertificateKeyPair, error) {
+	keyPairs, _, err := c.api.CryptoAPI.CryptoCertificatekeypairsList(ctx).Name(name).Execute()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list certificate keypairs: %w", err)
+	}
+
+	for _, keyPair := range keyPairs.Results {
+		if keyPair.Name == name {
+			return &keyPair, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func convertGrantTypes(grantTypes []string) ([]api.GrantTypeEnum, error) {
+	result := make([]api.GrantTypeEnum, 0, len(grantTypes))
+	for _, grantType := range grantTypes {
+		converted, err := api.NewGrantTypeEnumFromValue(grantType)
+		if err != nil {
+			return nil, fmt.Errorf("invalid grant type %q: %w", grantType, err)
+		}
+		result = append(result, *converted)
+	}
+	return result, nil
+}
+
 // CreateOAuth2Provider creates a new OAuth2 provider
-func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowUUID, invalidationFlowUUID string, redirectURIs []string, clientType string, propertyMappings []string, clientId string, subjectMode string) (*api.OAuth2Provider, error) {
+func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowUUID, invalidationFlowUUID string, redirectURIs []string, clientType string, propertyMappings []string, clientId string, subjectMode string, grantTypes []string, signingKeyName string) (*api.OAuth2Provider, error) {
 	redirectURIRequests := buildRedirectURIs(redirectURIs)
 	req := api.NewOAuth2ProviderRequest(name, authFlowUUID, invalidationFlowUUID, redirectURIRequests)
 
@@ -155,10 +181,27 @@ func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowUUID, i
 		req.SetSubMode(*subMode)
 	}
 
+	convertedGrantTypes, err := convertGrantTypes(grantTypes)
+	if err != nil {
+		return nil, err
+	}
+	req.SetGrantTypes(convertedGrantTypes)
+
+	if signingKeyName != "" {
+		signingKey, err := c.GetCertificateKeyPairByName(ctx, signingKeyName)
+		if err != nil {
+			return nil, err
+		}
+		if signingKey == nil {
+			return nil, fmt.Errorf("signing key %q not found", signingKeyName)
+		}
+		req.SetSigningKey(signingKey.GetPk())
+	}
+
 	// Always set property mappings, even if empty, to ensure proper API behavior
 	req.SetPropertyMappings(propertyMappings)
 
-	provider, resp, err := c.api.ProvidersApi.ProvidersOauth2Create(ctx).OAuth2ProviderRequest(*req).Execute()
+	provider, resp, err := c.api.ProvidersAPI.ProvidersOauth2Create(ctx).OAuth2ProviderRequest(*req).Execute()
 	if err != nil {
 		// Try to extract response body if available
 		var errorMsg string
@@ -177,7 +220,7 @@ func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowUUID, i
 
 // GetOAuth2Provider gets an OAuth2 provider by ID
 func (c *Client) GetOAuth2Provider(ctx context.Context, id int32) (*api.OAuth2Provider, error) {
-	provider, _, err := c.api.ProvidersApi.ProvidersOauth2Retrieve(ctx, id).Execute()
+	provider, _, err := c.api.ProvidersAPI.ProvidersOauth2Retrieve(ctx, id).Execute()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth2 provider: %w", err)
 	}
@@ -187,7 +230,7 @@ func (c *Client) GetOAuth2Provider(ctx context.Context, id int32) (*api.OAuth2Pr
 
 // GetOAuth2ProviderByName searches for an OAuth2 provider by name
 func (c *Client) GetOAuth2ProviderByName(ctx context.Context, name string) (*api.OAuth2Provider, error) {
-	providers, _, err := c.api.ProvidersApi.ProvidersOauth2List(ctx).Search(name).Execute()
+	providers, _, err := c.api.ProvidersAPI.ProvidersOauth2List(ctx).Search(name).Execute()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list OAuth2 providers: %w", err)
 	}
@@ -202,7 +245,7 @@ func (c *Client) GetOAuth2ProviderByName(ctx context.Context, name string) (*api
 }
 
 // UpdateOAuth2Provider updates an existing OAuth2 provider
-func (c *Client) UpdateOAuth2Provider(ctx context.Context, id int32, name, authFlowUUID, invalidationFlowUUID string, redirectURIs []string, clientType string, propertyMappings []string, clientId string, subjectMode string) (*api.OAuth2Provider, error) {
+func (c *Client) UpdateOAuth2Provider(ctx context.Context, id int32, name, authFlowUUID, invalidationFlowUUID string, redirectURIs []string, clientType string, propertyMappings []string, clientId string, subjectMode string, grantTypes []string, signingKeyName string) (*api.OAuth2Provider, error) {
 	redirectURIRequests := buildRedirectURIs(redirectURIs)
 	req := api.NewOAuth2ProviderRequest(name, authFlowUUID, invalidationFlowUUID, redirectURIRequests)
 
@@ -226,10 +269,27 @@ func (c *Client) UpdateOAuth2Provider(ctx context.Context, id int32, name, authF
 		req.SetSubMode(*subMode)
 	}
 
+	convertedGrantTypes, err := convertGrantTypes(grantTypes)
+	if err != nil {
+		return nil, err
+	}
+	req.SetGrantTypes(convertedGrantTypes)
+
+	if signingKeyName != "" {
+		signingKey, err := c.GetCertificateKeyPairByName(ctx, signingKeyName)
+		if err != nil {
+			return nil, err
+		}
+		if signingKey == nil {
+			return nil, fmt.Errorf("signing key %q not found", signingKeyName)
+		}
+		req.SetSigningKey(signingKey.GetPk())
+	}
+
 	// Always set property mappings, even if empty, to ensure proper API behavior
 	req.SetPropertyMappings(propertyMappings)
 
-	provider, _, err := c.api.ProvidersApi.ProvidersOauth2Update(ctx, id).OAuth2ProviderRequest(*req).Execute()
+	provider, _, err := c.api.ProvidersAPI.ProvidersOauth2Update(ctx, id).OAuth2ProviderRequest(*req).Execute()
 	if err != nil {
 		return nil, fmt.Errorf("failed to update OAuth2 provider: %w", err)
 	}
@@ -239,7 +299,7 @@ func (c *Client) UpdateOAuth2Provider(ctx context.Context, id int32, name, authF
 
 // DeleteOAuth2Provider deletes an OAuth2 provider
 func (c *Client) DeleteOAuth2Provider(ctx context.Context, id int32) error {
-	_, err := c.api.ProvidersApi.ProvidersOauth2Destroy(ctx, id).Execute()
+	_, err := c.api.ProvidersAPI.ProvidersOauth2Destroy(ctx, id).Execute()
 	if err != nil {
 		return fmt.Errorf("failed to delete OAuth2 provider: %w", err)
 	}
@@ -253,7 +313,7 @@ func (c *Client) CreateApplication(ctx context.Context, slug, name string, provi
 	req.SetProvider(providerID)
 	req.SetPolicyEngineMode(api.POLICYENGINEMODE_ANY)
 
-	app, _, err := c.api.CoreApi.CoreApplicationsCreate(ctx).ApplicationRequest(*req).Execute()
+	app, _, err := c.api.CoreAPI.CoreApplicationsCreate(ctx).ApplicationRequest(*req).Execute()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create application: %w", err)
 	}
@@ -263,7 +323,7 @@ func (c *Client) CreateApplication(ctx context.Context, slug, name string, provi
 
 // GetApplication gets an application by slug
 func (c *Client) GetApplication(ctx context.Context, slug string) (*api.Application, error) {
-	app, _, err := c.api.CoreApi.CoreApplicationsRetrieve(ctx, slug).Execute()
+	app, _, err := c.api.CoreAPI.CoreApplicationsRetrieve(ctx, slug).Execute()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get application: %w", err)
 	}
@@ -273,7 +333,7 @@ func (c *Client) GetApplication(ctx context.Context, slug string) (*api.Applicat
 
 // GetApplicationBySlug searches for an application by slug
 func (c *Client) GetApplicationBySlug(ctx context.Context, slug string) (*api.Application, error) {
-	apps, _, err := c.api.CoreApi.CoreApplicationsList(ctx).Search(slug).Execute()
+	apps, _, err := c.api.CoreAPI.CoreApplicationsList(ctx).Search(slug).Execute()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list applications: %w", err)
 	}
@@ -293,7 +353,7 @@ func (c *Client) UpdateApplication(ctx context.Context, slug, name string, provi
 	req.SetProvider(providerID)
 	req.SetPolicyEngineMode(api.POLICYENGINEMODE_ANY)
 
-	app, _, err := c.api.CoreApi.CoreApplicationsUpdate(ctx, slug).ApplicationRequest(*req).Execute()
+	app, _, err := c.api.CoreAPI.CoreApplicationsUpdate(ctx, slug).ApplicationRequest(*req).Execute()
 	if err != nil {
 		return nil, fmt.Errorf("failed to update application: %w", err)
 	}
@@ -303,7 +363,7 @@ func (c *Client) UpdateApplication(ctx context.Context, slug, name string, provi
 
 // DeleteApplication deletes an application
 func (c *Client) DeleteApplication(ctx context.Context, slug string) error {
-	_, err := c.api.CoreApi.CoreApplicationsDestroy(ctx, slug).Execute()
+	_, err := c.api.CoreAPI.CoreApplicationsDestroy(ctx, slug).Execute()
 	if err != nil {
 		return fmt.Errorf("failed to delete application: %w", err)
 	}
@@ -313,7 +373,7 @@ func (c *Client) DeleteApplication(ctx context.Context, slug string) error {
 
 // HealthCheck checks if the Authentik API is available
 func (c *Client) HealthCheck(ctx context.Context) error {
-	_, _, err := c.api.CoreApi.CoreApplicationsList(ctx).PageSize(1).Execute()
+	_, _, err := c.api.CoreAPI.CoreApplicationsList(ctx).PageSize(1).Execute()
 	return err
 }
 
