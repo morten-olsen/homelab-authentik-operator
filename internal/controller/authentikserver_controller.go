@@ -305,6 +305,18 @@ func (r *AuthentikServerReconciler) reconcileAuthentikServerDeployment(ctx conte
 								},
 							},
 							Env: r.getCommonEnv(server, bootstrapSecretName),
+							// Gate liveness while the database and migration worker recover after a reboot.
+							StartupProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/-/health/live/",
+										Port: intstr.FromInt(9000),
+									},
+								},
+								PeriodSeconds:    10,
+								TimeoutSeconds:   5,
+								FailureThreshold: 60,
+							},
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{

@@ -4,6 +4,19 @@
 ## Description
 // TODO(user): An in-depth paragraph about your project and overview of use
 
+## Server startup health checks
+
+The server's HTTP startup probe checks `/-/health/live/` on port 9000 every ten
+seconds, with a five-second request timeout and 60 failures allowed. Kubernetes
+holds liveness and readiness probes until startup succeeds, giving the server
+up to ten minutes to start while PostgreSQL and the migration worker recover
+after a reboot. After startup, the existing live and ready endpoints continue
+to check the running server. Readiness still controls whether it receives traffic.
+
+This startup budget prevents premature liveness restarts; database contention
+must also be fixed in the postgres operator. It does not make a permanent lock
+deadlock safe.
+
 ## Getting Started
 
 ### Prerequisites
@@ -132,4 +145,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
