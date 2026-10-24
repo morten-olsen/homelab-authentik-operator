@@ -19,6 +19,21 @@ deadlock safe.
 
 ## Getting Started
 
+### Release version and approval
+
+The mirror's main workflow publishes the version in
+`charts/authentik-operator/Chart.yaml` as its `v` tag, image tag and chart version.
+Bump `version` and `appVersion` together before a release-triggering merge. The
+workflow refuses an existing tag; it must never overwrite an existing release.
+This avoids inferring `0.1.0` from stale `v0.0.15` tag history when `0.1.0`
+artifacts already exist. The startup-probe fix is prepared as `0.1.2`, beyond
+both the running `0.1.0` and the previous source chart version `0.1.1`.
+
+Morten must approve the repository, version, commit and publishing/deployment
+effects before merging to main. Publication alone does not update the homelab:
+once the artifacts exist, change core's pinned operator version and verify the
+operator image and the generated server startup probe in the cluster.
+
 ### Prerequisites
 - go version v1.24.6+
 - docker version 17.03+.
