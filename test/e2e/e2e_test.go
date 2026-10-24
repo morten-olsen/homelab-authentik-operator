@@ -87,6 +87,14 @@ var _ = Describe("Manager", Ordered, func() {
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
 	// and deleting the namespace.
 	AfterAll(func() {
+		// Finalizers need the running operator; remove its resources before undeploying it.
+		By("deleting test clients and servers while the controller is running")
+		for _, resource := range []string{"authentikclients", "authentikservers"} {
+			cmd := exec.Command("kubectl", "delete", resource, "--all", "-n", namespace,
+				"--ignore-not-found", "--timeout=60s")
+			_, _ = utils.Run(cmd)
+		}
+
 		By("cleaning up the ClusterRoleBinding for metrics")
 		cmd := exec.Command("kubectl", "delete", "clusterrolebinding", metricsRoleBindingName)
 		_, _ = utils.Run(cmd)
@@ -104,7 +112,7 @@ var _ = Describe("Manager", Ordered, func() {
 		_, _ = utils.Run(cmd)
 
 		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace)
+		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--timeout=60s")
 		_, _ = utils.Run(cmd)
 	})
 
@@ -314,6 +322,7 @@ spec:
     name: e2e-postgres-secret
     key: password
   host: auth.e2e-test.local
+  image: ghcr.io/goauthentik/server:2026.8.3
 `
 			// Write YAML to temp file
 			tmpFile := filepath.Join("/tmp", "authentikserver-e2e.yaml")
@@ -364,6 +373,20 @@ spec:
 			}
 			Eventually(verifyAuthentikDeployment, 60*time.Second, time.Second).Should(Succeed())
 
+			By("verifying that the server has its ten-minute startup budget")
+			cmd = exec.Command("kubectl", "get", "deployment", "e2e-test-server-server", "-n", namespace,
+				"-o", "jsonpath={.spec.template.spec.containers[0].startupProbe}")
+			probeJSON, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			var probe struct {
+				FailureThreshold int `json:"failureThreshold"`
+				PeriodSeconds    int `json:"periodSeconds"`
+				TimeoutSeconds   int `json:"timeoutSeconds"`
+			}
+			Expect(json.Unmarshal([]byte(probeJSON), &probe)).To(Succeed())
+			Expect(probe.FailureThreshold * probe.PeriodSeconds).To(Equal(600))
+			Expect(probe.TimeoutSeconds).To(Equal(5))
+
 			By("verifying that the Authentik service was created")
 			verifyAuthentikService := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "service", "e2e-test-server",
@@ -380,7 +403,7 @@ spec:
 					"-n", namespace, "-o", "jsonpath={.status.url}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("http://auth.e2e-test.local"))
+				g.Expect(output).To(Equal("https://auth.e2e-test.local"))
 			}
 			Eventually(verifyStatusURL, 60*time.Second, time.Second).Should(Succeed())
 
@@ -425,6 +448,7 @@ spec:
     name: e2e-postgres-secret-client
     key: password
   host: auth-client.e2e-test.local
+  image: ghcr.io/goauthentik/server:2026.8.3
 `
 			tmpServerFile := filepath.Join("/tmp", "authentikserver-client-e2e.yaml")
 			err = os.WriteFile(tmpServerFile, []byte(authentikServerYAML), 0644)

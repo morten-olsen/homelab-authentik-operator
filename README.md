@@ -4,7 +4,35 @@
 ## Description
 // TODO(user): An in-depth paragraph about your project and overview of use
 
+## Server startup health checks
+
+The server's HTTP startup probe checks `/-/health/live/` on port 9000 every ten
+seconds, with a five-second request timeout and 60 failures allowed. Kubernetes
+holds liveness and readiness probes until startup succeeds, giving the server
+up to ten minutes to start while PostgreSQL and the migration worker recover
+after a reboot. After startup, the existing live and ready endpoints continue
+to check the running server. Readiness still controls whether it receives traffic.
+
+This startup budget prevents premature liveness restarts; database contention
+must also be fixed in the postgres operator. It does not make a permanent lock
+deadlock safe.
+
 ## Getting Started
+
+### Release version and approval
+
+The mirror's main workflow publishes the version in
+`charts/authentik-operator/Chart.yaml` as its `v` tag, image tag and chart version.
+Bump `version` and `appVersion` together before a release-triggering merge. The
+workflow refuses an existing tag; it must never overwrite an existing release.
+This avoids inferring `0.1.0` from stale `v0.0.15` tag history when `0.1.0`
+artifacts already exist. The startup-probe fix is prepared as `0.1.2`, beyond
+both the running `0.1.0` and the previous source chart version `0.1.1`.
+
+Morten must approve the repository, version, commit and publishing/deployment
+effects before merging to main. Publication alone does not update the homelab:
+once the artifacts exist, change core's pinned operator version and verify the
+operator image and the generated server startup probe in the cluster.
 
 ### Prerequisites
 - go version v1.24.6+
@@ -133,3 +161,10 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
+### End-to-end test fixtures
+
+`make test-e2e` runs the operator in an isolated Kind cluster. Authentik fixtures
+pin the homelab's existing `2026.8.3` server tag, check the public HTTPS URL and
+startup probe, and delete clients and servers before undeploying the controller
+so their finalizers can finish. Namespace cleanup has a bounded wait. The fixture
+image pin is independent of the AuthentikServer API default.
