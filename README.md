@@ -160,3 +160,11 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+### End-to-end test fixtures
+
+`make test-e2e` runs the operator in an isolated Kind cluster. Authentik fixtures
+pin the homelab's existing `2026.8.3` server tag, check the public HTTPS URL and
+startup probe, and delete clients and servers before undeploying the controller
+so their finalizers can finish. Namespace cleanup has a bounded wait. The fixture
+image pin is independent of the AuthentikServer API default.
