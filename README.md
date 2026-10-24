@@ -185,9 +185,15 @@ limitations under the License.
 
 `make test-e2e` runs the operator in an isolated Kind cluster. The server fixture
 omits `spec.image`, checks admission and both deployment images are `2026.8.5`,
-then waits for both deployments and `status.ready=true`. The client fixture pins
-the same version explicitly and checks client readiness; using the same version
-avoids downgrading the disposable shared test database. Fixtures also check the
-public HTTPS URL and startup probe, and delete clients and servers before
-undeploying the controller so their finalizers can finish. Namespace cleanup has
-a bounded wait. Runtime credentials and data are not used by these isolated tests.
+then waits for both deployments and `status.ready=true`. The client test reuses
+that initialized server and its bootstrap secret. A second server against the
+same test database would generate credentials that differ from its first-boot
+initialization. Explicit image preservation is tested separately in the
+controller regression tests.
+
+The suite has a thirty-minute Go timeout so image builds, startup waits and
+failure diagnostics fit inside the overall deadline. Individual readiness waits
+remain bounded. Fixtures also check the public HTTPS URL and startup probe,
+and delete clients and servers before undeploying the controller so their
+finalizers can finish. Namespace cleanup has a bounded wait. Runtime credentials
+and data are not used by these isolated tests.
