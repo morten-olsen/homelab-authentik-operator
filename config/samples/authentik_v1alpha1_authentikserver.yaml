@@ -23,6 +23,6 @@ spec:
   # External hostname for Authentik
   host: auth.example.com
   # Optional: Authentik container image
-  # image: ghcr.io/goauthentik/server:latest
+  # image: ghcr.io/goauthentik/server:2026.8.5
   # Optional: Number of replicas
   # replicas: 1

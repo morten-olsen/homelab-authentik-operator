@@ -120,6 +120,11 @@ var _ = Describe("AuthentikServer Controller", func() {
 		})
 
 		It("should successfully reconcile the resource", func() {
+			By("Checking that admission defaulted the omitted image")
+			admittedServer := &authentikv1alpha1.AuthentikServer{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, admittedServer)).To(Succeed())
+			Expect(admittedServer.Spec.Image).To(Equal(expectedDefaultImage))
+
 			By("Reconciling the created resource")
 			controllerReconciler := &AuthentikServerReconciler{
 				Client: k8sClient,

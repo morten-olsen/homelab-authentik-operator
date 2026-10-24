@@ -4,6 +4,26 @@
 ## Description
 // TODO(user): An in-depth paragraph about your project and overview of use
 
+## Authentik server image default
+
+New `AuthentikServer` resources that omit `spec.image` use
+`ghcr.io/goauthentik/server:2026.8.5` for both server and worker. This is the
+current patch in the supported 2026.8 release series as of 2026-10-24; see the
+[upstream release notes](https://docs.goauthentik.io/releases/2026.8/).
+The registry does not publish a `latest` tag.
+
+Keep the default on a fixed supported release. Update it through a reviewed
+change after checking upstream release/support notes and registry availability;
+regenerate `config/crd/bases`, copy the server CRD into the Helm chart, and run
+`make test`, `make test-e2e` and chart validation. The fallback, API marker,
+packaged CRDs and E2E expectations must agree. The operator repository has no
+Renovate schedule; core's Renovate updates explicit workload image pins
+separately. An explicit `spec.image` is preserved, including an older version or
+`latest`; changing the default does not rewrite existing pins. Operators should
+pin existing stateful installations explicitly and approve upgrades separately.
+The homelab remains pinned to `2026.8.3`; this change does not migrate its database
+or change its credentials.
+
 ## Server startup health checks
 
 The server's HTTP startup probe checks `/-/health/live/` on port 9000 every ten
@@ -26,8 +46,8 @@ The mirror's main workflow publishes the version in
 Bump `version` and `appVersion` together before a release-triggering merge. The
 workflow refuses an existing tag; it must never overwrite an existing release.
 This avoids inferring `0.1.0` from stale `v0.0.15` tag history when `0.1.0`
-artifacts already exist. The startup-probe fix is prepared as `0.1.2`, beyond
-both the running `0.1.0` and the previous source chart version `0.1.1`.
+artifacts already exist. The default-image fix is prepared as `0.1.3`, following
+the published startup-probe release `0.1.2`.
 
 Morten must approve the repository, version, commit and publishing/deployment
 effects before merging to main. Publication alone does not update the homelab:
@@ -163,8 +183,11 @@ limitations under the License.
 
 ### End-to-end test fixtures
 
-`make test-e2e` runs the operator in an isolated Kind cluster. Authentik fixtures
-pin the homelab's existing `2026.8.3` server tag, check the public HTTPS URL and
-startup probe, and delete clients and servers before undeploying the controller
-so their finalizers can finish. Namespace cleanup has a bounded wait. The fixture
-image pin is independent of the AuthentikServer API default.
+`make test-e2e` runs the operator in an isolated Kind cluster. The server fixture
+omits `spec.image`, checks admission and both deployment images are `2026.8.5`,
+then waits for both deployments and `status.ready=true`. The client fixture pins
+the same version explicitly and checks client readiness; using the same version
+avoids downgrading the disposable shared test database. Fixtures also check the
+public HTTPS URL and startup probe, and delete clients and servers before
+undeploying the controller so their finalizers can finish. Namespace cleanup has
+a bounded wait. Runtime credentials and data are not used by these isolated tests.

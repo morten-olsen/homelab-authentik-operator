@@ -43,7 +43,7 @@ spec:
                 description: host is the external hostname for Authentik
                 type: string
               image:
-                default: ghcr.io/goauthentik/server:latest
+                default: ghcr.io/goauthentik/server:2026.8.5
                 description: image is the Authentik container image to use
                 type: string
               postgresDatabase:

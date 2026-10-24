@@ -71,7 +71,7 @@ type AuthentikServerSpec struct {
 
 	// image is the Authentik container image to use
 	// +optional
-	// +kubebuilder:default="ghcr.io/goauthentik/server:latest"
+	// +kubebuilder:default="ghcr.io/goauthentik/server:2026.8.5"
 	Image string `json:"image,omitempty"`
 
 	// replicas is the number of Authentik server pods
