@@ -646,7 +646,7 @@ func (r *AuthentikServerReconciler) checkDeploymentStatus(ctx context.Context, s
 
 func (r *AuthentikServerReconciler) applyDefaults(server *authentikv1alpha1.AuthentikServer) {
 	if server.Spec.Image == "" {
-		server.Spec.Image = "ghcr.io/goauthentik/server:latest"
+		server.Spec.Image = "ghcr.io/goauthentik/server:2026.8.5"
 	}
 	if server.Spec.Replicas == nil {
 		server.Spec.Replicas = ptr.To(int32(1))

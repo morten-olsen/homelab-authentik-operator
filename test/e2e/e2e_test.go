@@ -290,7 +290,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 
-		It("should reconcile an AuthentikServer CR", func() {
+		It("should make an AuthentikServer ready with its default image", func() {
 			By("creating the postgres secret")
 			cmd := exec.Command("kubectl", "create", "secret", "generic", "e2e-postgres-secret",
 				"--from-literal=host=postgres",
@@ -322,7 +322,6 @@ spec:
     name: e2e-postgres-secret
     key: password
   host: auth.e2e-test.local
-  image: ghcr.io/goauthentik/server:2026.8.3
 `
 			// Write YAML to temp file
 			tmpFile := filepath.Join("/tmp", "authentikserver-e2e.yaml")
@@ -342,6 +341,13 @@ spec:
 				g.Expect(output).To(Equal("e2e-test-server"))
 			}
 			Eventually(verifyServerCreated, 30*time.Second, time.Second).Should(Succeed())
+
+			By("verifying that admission selected the supported default image")
+			cmd = exec.Command("kubectl", "get", "authentikserver", "e2e-test-server", "-n", namespace,
+				"-o", "jsonpath={.spec.image}")
+			image, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(image).To(Equal("ghcr.io/goauthentik/server:2026.8.5"))
 
 			By("verifying that the bootstrap secret was created")
 			verifyBootstrapSecret := func(g Gomega) {
@@ -407,56 +413,29 @@ spec:
 			}
 			Eventually(verifyStatusURL, 60*time.Second, time.Second).Should(Succeed())
 
-			By("cleaning up the AuthentikServer CR")
-			cmd = exec.Command("kubectl", "delete", "authentikserver", "e2e-test-server", "-n", namespace)
-			_, _ = utils.Run(cmd)
-
-			By("cleaning up the postgres secret")
-			cmd = exec.Command("kubectl", "delete", "secret", "e2e-postgres-secret", "-n", namespace)
-			_, _ = utils.Run(cmd)
+			By("verifying that the default image runs in both deployments and reaches ready")
+			for _, component := range []string{"server", "worker"} {
+				cmd = exec.Command("kubectl", "get", "deployment", "e2e-test-server-"+component, "-n", namespace,
+					"-o", "jsonpath={.spec.template.spec.containers[0].image}")
+				image, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(image).To(Equal("ghcr.io/goauthentik/server:2026.8.5"))
+				cmd = exec.Command("kubectl", "rollout", "status", "deployment/e2e-test-server-"+component,
+					"-n", namespace, "--timeout=10m")
+				_, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "authentikserver", "e2e-test-server", "-n", namespace,
+					"-o", "jsonpath={.status.ready}")
+				ready, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(ready).To(Equal("true"))
+			}, time.Minute, time.Second).Should(Succeed())
+			_, _ = fmt.Fprintln(GinkgoWriter, "Omitted image: admitted 2026.8.5; server and worker rolled out; AuthentikServer ready=true")
 		})
 
-		It("should reconcile an AuthentikClient CR", func() {
-			By("creating the postgres secret")
-			cmd := exec.Command("kubectl", "create", "secret", "generic", "e2e-postgres-secret-client",
-				"--from-literal=host=postgres",
-				"--from-literal=user=authentik",
-				"--from-literal=name=authentik",
-				"--from-literal=password=authentik",
-				"-n", namespace)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("applying the AuthentikServer CR")
-			authentikServerYAML := `
-apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
-kind: AuthentikServer
-metadata:
-  name: e2e-test-server-client
-  namespace: ` + namespace + `
-spec:
-  postgresHostSecretRef:
-    name: e2e-postgres-secret-client
-    key: host
-  postgresUserSecretRef:
-    name: e2e-postgres-secret-client
-    key: user
-  postgresDatabaseSecretRef:
-    name: e2e-postgres-secret-client
-    key: name
-  postgresPasswordSecretRef:
-    name: e2e-postgres-secret-client
-    key: password
-  host: auth-client.e2e-test.local
-  image: ghcr.io/goauthentik/server:2026.8.3
-`
-			tmpServerFile := filepath.Join("/tmp", "authentikserver-client-e2e.yaml")
-			err = os.WriteFile(tmpServerFile, []byte(authentikServerYAML), 0644)
-			Expect(err).NotTo(HaveOccurred())
-			cmd = exec.Command("kubectl", "apply", "-f", tmpServerFile)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
+		It("should reconcile an AuthentikClient against the defaulted server", func() {
 			By("applying the AuthentikClient CR")
 			authentikClientYAML := `
 apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
@@ -466,16 +445,16 @@ metadata:
   namespace: ` + namespace + `
 spec:
   serverRef:
-    name: e2e-test-server-client
+    name: e2e-test-server
     namespace: ` + namespace + `
   name: "Test Client"
   redirectUris:
     - https://app.e2e-test.local/callback
 `
 			tmpClientFile := filepath.Join("/tmp", "authentikclient-e2e.yaml")
-			err = os.WriteFile(tmpClientFile, []byte(authentikClientYAML), 0644)
+			err := os.WriteFile(tmpClientFile, []byte(authentikClientYAML), 0644)
 			Expect(err).NotTo(HaveOccurred())
-			cmd = exec.Command("kubectl", "apply", "-f", tmpClientFile)
+			cmd := exec.Command("kubectl", "apply", "-f", tmpClientFile)
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -491,7 +470,7 @@ spec:
 
 			By("verifying that the server is eventually ready")
 			verifyServerReady := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "authentikserver", "e2e-test-server-client",
+				cmd := exec.Command("kubectl", "get", "authentikserver", "e2e-test-server",
 					"-n", namespace, "-o", "jsonpath={.status.ready}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -512,9 +491,9 @@ spec:
 			By("cleaning up the AuthentikClient and AuthentikServer")
 			cmd = exec.Command("kubectl", "delete", "authentikclient", "e2e-test-client", "-n", namespace)
 			_, _ = utils.Run(cmd)
-			cmd = exec.Command("kubectl", "delete", "authentikserver", "e2e-test-server-client", "-n", namespace)
+			cmd = exec.Command("kubectl", "delete", "authentikserver", "e2e-test-server", "-n", namespace)
 			_, _ = utils.Run(cmd)
-			cmd = exec.Command("kubectl", "delete", "secret", "e2e-postgres-secret-client", "-n", namespace)
+			cmd = exec.Command("kubectl", "delete", "secret", "e2e-postgres-secret", "-n", namespace)
 			_, _ = utils.Run(cmd)
 		})
 	})
