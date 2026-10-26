@@ -104,96 +104,28 @@ func (r *AuthentikServerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{}, nil
 }
 
-func (r *AuthentikServerReconciler) reconcileRedis(ctx context.Context, server *authentikv1alpha1.AuthentikServer) error {
-	labels := map[string]string{
-		"app.kubernetes.io/name":       "redis",
-		"app.kubernetes.io/instance":   server.Name,
-		"app.kubernetes.io/managed-by": "authentik-operator",
-	}
-
-	// Redis Deployment
-	redisDeployment := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-redis", server.Name),
-			Namespace: server.Namespace,
-		},
-	}
-
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, redisDeployment, func() error {
-		redisDeployment.Labels = labels
-		redisDeployment.Spec = appsv1.DeploymentSpec{
-			Replicas: ptr.To(int32(1)),
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: corev1.PodSpec{
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: ptr.To(true),
-						RunAsUser:    ptr.To(int64(999)),
-						RunAsGroup:   ptr.To(int64(999)),
-						FSGroup:      ptr.To(int64(999)),
-						SeccompProfile: &corev1.SeccompProfile{
-							Type: corev1.SeccompProfileTypeRuntimeDefault,
-						},
-					},
-					Containers: []corev1.Container{
-						{
-							Name:  "redis",
-							Image: "redis:7-alpine",
-							SecurityContext: &corev1.SecurityContext{
-								AllowPrivilegeEscalation: ptr.To(false),
-								Capabilities: &corev1.Capabilities{
-									Drop: []corev1.Capability{"ALL"},
-								},
-								RunAsNonRoot: ptr.To(true),
-								RunAsUser:    ptr.To(int64(999)),
-							},
-							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: 6379,
-									Protocol:      corev1.ProtocolTCP,
-								},
-							},
-							Resources: corev1.ResourceRequirements{},
-						},
-					},
-				},
-			},
+// Authentik 2025.10 removed Redis; retire only resources controlled by this server.
+func (r *AuthentikServerReconciler) cleanupObsoleteRedis(ctx context.Context, server *authentikv1alpha1.AuthentikServer) error {
+	key := types.NamespacedName{Name: server.Name + "-redis", Namespace: server.Namespace}
+	for _, resource := range []client.Object{&appsv1.Deployment{}, &corev1.Service{}} {
+		if err := r.Get(ctx, key, resource); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
 		}
-		return controllerutil.SetControllerReference(server, redisDeployment, r.Scheme)
-	})
-	if err != nil {
-		return err
-	}
-
-	// Redis Service
-	redisService := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-redis", server.Name),
-			Namespace: server.Namespace,
-		},
-	}
-
-	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, redisService, func() error {
-		redisService.Labels = labels
-		redisService.Spec = corev1.ServiceSpec{
-			Selector: labels,
-			Ports: []corev1.ServicePort{
-				{
-					Port:       6379,
-					TargetPort: intstr.FromInt(6379),
-					Protocol:   corev1.ProtocolTCP,
-				},
-			},
+		if !metav1.IsControlledBy(resource, server) {
+			continue
 		}
-		return controllerutil.SetControllerReference(server, redisService, r.Scheme)
-	})
-
-	return err
+		// Protect replacements and ownership changes between the read and delete.
+		if err := r.Delete(ctx, resource, client.Preconditions{
+			UID:             ptr.To(resource.GetUID()),
+			ResourceVersion: ptr.To(resource.GetResourceVersion()),
+		}); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *AuthentikServerReconciler) reconcileBootstrapSecret(ctx context.Context, server *authentikv1alpha1.AuthentikServer, secretName string) error {
@@ -416,10 +348,6 @@ func (r *AuthentikServerReconciler) getCommonEnv(server *authentikv1alpha1.Authe
 		r.getEnvVar("AUTHENTIK_POSTGRESQL__NAME", server.Spec.PostgresDatabase, server.Spec.PostgresDatabaseSecretRef),
 		r.getEnvVar("AUTHENTIK_POSTGRESQL__PASSWORD", server.Spec.PostgresPassword, server.Spec.PostgresPasswordSecretRef),
 		{
-			Name:  "AUTHENTIK_REDIS__HOST",
-			Value: fmt.Sprintf("%s-redis", server.Name),
-		},
-		{
 			Name: "AUTHENTIK_SECRET_KEY",
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
@@ -570,11 +498,10 @@ func (r *AuthentikServerReconciler) handleFinalizers(ctx context.Context, server
 func (r *AuthentikServerReconciler) reconcileComponents(ctx context.Context, server *authentikv1alpha1.AuthentikServer) error {
 	bootstrapSecretName := fmt.Sprintf("%s-bootstrap", server.Name)
 
-	if err := r.reconcileRedis(ctx, server); err != nil {
-		r.setCondition(server, "RedisReady", metav1.ConditionFalse, "ReconcileFailed", err.Error())
+	meta.RemoveStatusCondition(&server.Status.Conditions, "RedisReady")
+	if err := r.cleanupObsoleteRedis(ctx, server); err != nil {
 		return err
 	}
-	r.setCondition(server, "RedisReady", metav1.ConditionTrue, "Reconciled", "Redis is ready")
 
 	if err := r.reconcileBootstrapSecret(ctx, server, bootstrapSecretName); err != nil {
 		r.setCondition(server, "BootstrapSecretReady", metav1.ConditionFalse, "ReconcileFailed", err.Error())

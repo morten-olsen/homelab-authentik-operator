@@ -359,15 +359,14 @@ spec:
 			}
 			Eventually(verifyBootstrapSecret, 60*time.Second, time.Second).Should(Succeed())
 
-			By("verifying that the Redis deployment was created")
-			verifyRedisDeployment := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "deployment", "e2e-test-server-redis",
-					"-n", namespace, "-o", "jsonpath={.metadata.name}")
+			By("verifying that obsolete Redis resources are not created")
+			for _, kind := range []string{"deployment", "service"} {
+				cmd = exec.Command("kubectl", "get", kind, "e2e-test-server-redis",
+					"-n", namespace, "--ignore-not-found", "-o", "name")
 				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("e2e-test-server-redis"))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(output).To(BeEmpty())
 			}
-			Eventually(verifyRedisDeployment, 60*time.Second, time.Second).Should(Succeed())
 
 			By("verifying that the Authentik deployment was created")
 			verifyAuthentikDeployment := func(g Gomega) {

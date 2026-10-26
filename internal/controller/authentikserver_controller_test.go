@@ -150,23 +150,10 @@ var _ = Describe("AuthentikServer Controller", func() {
 			Expect(bootstrapSecret.Data).To(HaveKey("secret-key"))
 			Expect(bootstrapSecret.Data).To(HaveKey("email"))
 
-			By("Checking that the Redis deployment was created")
-			redisDeployment := &appsv1.Deployment{}
-			Eventually(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{
-					Name:      resourceName + "-redis",
-					Namespace: resourceNamespace,
-				}, redisDeployment)
-			}, timeout, interval).Should(Succeed())
-
-			By("Checking that the Redis service was created")
-			redisService := &corev1.Service{}
-			Eventually(func() error {
-				return k8sClient.Get(ctx, types.NamespacedName{
-					Name:      resourceName + "-redis",
-					Namespace: resourceNamespace,
-				}, redisService)
-			}, timeout, interval).Should(Succeed())
+			By("Checking that obsolete Redis resources are not created")
+			redisKey := types.NamespacedName{Name: resourceName + "-redis", Namespace: resourceNamespace}
+			Expect(errors.IsNotFound(k8sClient.Get(ctx, redisKey, &appsv1.Deployment{}))).To(BeTrue())
+			Expect(errors.IsNotFound(k8sClient.Get(ctx, redisKey, &corev1.Service{}))).To(BeTrue())
 
 			By("Checking that the Authentik server deployment was created")
 			authentikServerDeployment := &appsv1.Deployment{}

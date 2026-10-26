@@ -16,13 +16,25 @@ Keep the default on a fixed supported release. Update it through a reviewed
 change after checking upstream release/support notes and registry availability;
 regenerate `config/crd/bases`, copy the server CRD into the Helm chart, and run
 `make test`, `make test-e2e` and chart validation. The fallback, API marker,
-packaged CRDs and E2E expectations must agree. The operator repository has no
-Renovate schedule; core's Renovate updates explicit workload image pins
-separately. An explicit `spec.image` is preserved, including an older version or
-`latest`; changing the default does not rewrite existing pins. Operators should
+packaged CRDs and E2E expectations must agree. Repository Renovate runs weekly
+on Sunday at 03:15 UTC and tracks the operator's image defaults; core's Renovate
+updates explicit workload image pins separately. An explicit `spec.image` is
+preserved, including an older version or `latest`; changing the default does not
+rewrite existing pins. Operators should
 pin existing stateful installations explicitly and approve upgrades separately.
-The homelab remains pinned to `2026.8.3`; this change does not migrate its database
-or change its credentials.
+The homelab is pinned to `2026.8.5`; removing its obsolete Redis workload does not
+migrate the database or change its credentials.
+
+## Supported Authentik versions and dependencies
+
+Use Authentik 2025.10 or newer; the deployed supported release series is 2026.8.x.
+Authentik [removed Redis in 2025.10](https://docs.goauthentik.io/releases/2025.10/#redis-removal)
+and now uses PostgreSQL for caching, tasks and sessions. The operator creates no
+Redis workload or Redis environment settings. On reconciliation it deletes an
+obsolete `<server-name>-redis` Deployment and Service only when controlled by
+that `AuthentikServer` UID; unowned resources and resources controlled by another
+server are left untouched. PostgreSQL configuration and bootstrap credentials
+are preserved.
 
 ## Server startup health checks
 
@@ -46,8 +58,10 @@ The mirror's main workflow publishes the version in
 Bump `version` and `appVersion` together before a release-triggering merge. The
 workflow refuses an existing tag; it must never overwrite an existing release.
 This avoids inferring `0.1.0` from stale `v0.0.15` tag history when `0.1.0`
-artifacts already exist. The default-image fix is prepared as `0.1.3`, following
-the published startup-probe release `0.1.2`.
+artifacts already exist. Redis removal is prepared as `0.1.4`, following
+the published default-image release `0.1.3`.
+Renovate source PRs still require review and a matching chart `version` and
+`appVersion` bump before the release-triggering merge.
 
 Morten must approve the repository, version, commit and publishing/deployment
 effects before merging to main. Publication alone does not update the homelab:
