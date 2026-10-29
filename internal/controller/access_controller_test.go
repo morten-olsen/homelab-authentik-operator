@@ -38,33 +38,33 @@ func TestAccessOptInAndFailureStatus(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				p := r.URL.Path
 				switch {
-				case strings.Contains(p, "policies/expression") && r.Method == "GET":
-					fmt.Fprint(w, `{"results":[],"pagination":{"next":0}}`)
-				case strings.Contains(p, "policies/expression") && r.Method == "POST":
+				case strings.Contains(p, "policies/expression") && r.Method == http.MethodGet:
+					_, _ = fmt.Fprint(w, `{"results":[],"pagination":{"next":0}}`)
+				case strings.Contains(p, "policies/expression") && r.Method == http.MethodPost:
 					writes++
 					var policy map[string]any
-					json.NewDecoder(r.Body).Decode(&policy)
+					checkTestError(t, json.NewDecoder(r.Body).Decode(&policy))
 					policy["pk"] = "guard-1"
-					json.NewEncoder(w).Encode(policy)
-				case strings.Contains(p, "core/applications") && r.Method == "GET":
-					json.NewEncoder(w).Encode(app)
-				case strings.Contains(p, "core/applications") && r.Method == "PATCH":
+					checkTestError(t, json.NewEncoder(w).Encode(policy))
+				case strings.Contains(p, "core/applications") && r.Method == http.MethodGet:
+					checkTestError(t, json.NewEncoder(w).Encode(app))
+				case strings.Contains(p, "core/applications") && r.Method == http.MethodPatch:
 					writes++
 					var patch map[string]any
-					json.NewDecoder(r.Body).Decode(&patch)
+					checkTestError(t, json.NewDecoder(r.Body).Decode(&patch))
 					for k, v := range patch {
 						app[k] = v
 					}
-					json.NewEncoder(w).Encode(app)
-				case strings.Contains(p, "policies/bindings") && r.Method == "GET":
-					json.NewEncoder(w).Encode(map[string]any{"results": bindings, "pagination": map[string]int{"next": 0}})
-				case strings.Contains(p, "policies/bindings") && r.Method == "POST":
+					checkTestError(t, json.NewEncoder(w).Encode(app))
+				case strings.Contains(p, "policies/bindings") && r.Method == http.MethodGet:
+					checkTestError(t, json.NewEncoder(w).Encode(map[string]any{"results": bindings, "pagination": map[string]int{"next": 0}}))
+				case strings.Contains(p, "policies/bindings") && r.Method == http.MethodPost:
 					writes++
 					var b map[string]any
-					json.NewDecoder(r.Body).Decode(&b)
+					checkTestError(t, json.NewDecoder(r.Body).Decode(&b))
 					b["pk"] = "guard-binding"
 					bindings = append(bindings, b)
-					json.NewEncoder(w).Encode(b)
+					checkTestError(t, json.NewEncoder(w).Encode(b))
 				default:
 					t.Errorf("unexpected request %s %s", r.Method, p)
 					w.WriteHeader(500)
@@ -72,7 +72,7 @@ func TestAccessOptInAndFailureStatus(t *testing.T) {
 			}))
 			defer srv.Close()
 			scheme := runtime.NewScheme()
-			authv1.AddToScheme(scheme)
+			checkTestError(t, authv1.AddToScheme(scheme))
 			c := &authv1.AuthentikClient{ObjectMeta: metav1.ObjectMeta{Name: "example", Namespace: "prod", UID: "client-uid", Generation: 2}, Spec: authv1.AuthentikClientSpec{Name: "example", AllowedGroups: tc.refs}, Status: authv1.AuthentikClientStatus{ProviderID: 12, ApplicationID: "prod-example", Ready: true, AccessManaged: tc.sticky}}
 			kube := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(c).WithObjects(c).Build()
 			r := &AuthentikClientReconciler{Client: kube, Scheme: scheme}
@@ -87,7 +87,7 @@ func TestAccessOptInAndFailureStatus(t *testing.T) {
 				return
 			}
 			var saved authv1.AuthentikClient
-			kube.Get(context.Background(), types.NamespacedName{Name: c.Name, Namespace: c.Namespace}, &saved)
+			checkTestError(t, kube.Get(context.Background(), types.NamespacedName{Name: c.Name, Namespace: c.Namespace}, &saved))
 			if saved.Status.Ready || !saved.Status.AccessManaged {
 				t.Fatalf("unsafe status: %+v", saved.Status)
 			}
@@ -105,8 +105,15 @@ func TestExplicitEmptyAllowedGroupsSurvivesSerialization(t *testing.T) {
 		t.Fatal(err)
 	}
 	var decoded authv1.AuthentikClient
-	json.Unmarshal(b, &decoded)
+	checkTestError(t, json.Unmarshal(b, &decoded))
 	if decoded.Spec.AllowedGroups == nil {
 		t.Fatal("an explicit empty deny-list became legacy omission")
+	}
+}
+
+func checkTestError(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Errorf("test JSON I/O failed: %v", err)
 	}
 }

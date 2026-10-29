@@ -8,6 +8,9 @@ import (
 	"slices"
 )
 
+const accessModeAny = "any"
+const accessModeAll = "all"
+
 type AccessApplication struct {
 	PK          string `json:"pk"`
 	Slug        string `json:"slug"`
@@ -157,30 +160,15 @@ func (c *Client) accessMode(ctx context.Context, slug, mode string) error {
 // Existing binding deletion is explicitly inventoried; unexpected foreign
 // bindings close the application and require a GitOps migration decision.
 func (c *Client) ReconcileAccess(ctx context.Context, plan AccessPlan) (result *AccessApplication, reconcileErr error) {
-	if plan.Slug == "" || plan.Owner == "" {
-		return nil, fmt.Errorf("application identity required")
-	}
-	var app AccessApplication
-	err := c.managedRequest(ctx, http.MethodGet, "core/applications/"+url.PathEscape(plan.Slug)+"/", nil, &app)
-	if err != nil && !isManagedNotFound(err) {
+	app, err := c.claimAccessApplication(ctx, plan)
+	if err != nil {
 		return nil, err
-	}
-	if isManagedNotFound(err) {
-		payload := map[string]any{"name": plan.Name, "slug": plan.Slug, "provider": nil, "policy_engine_mode": "all", "meta_description": applicationOwner(plan.Owner)}
-		if err := c.managedRequest(ctx, http.MethodPost, "core/applications/", payload, &app); err != nil {
-			return nil, err
-		}
-		if app.PK == "" || app.Slug != plan.Slug || app.Provider != 0 || app.Description != applicationOwner(plan.Owner) {
-			return nil, fmt.Errorf("disconnected application creation verification failed")
-		}
-	} else if (!plan.ClaimExisting && app.Description != applicationOwner(plan.Owner)) || (app.Provider != 0 && app.Provider != plan.ProviderID) {
-		return nil, fmt.Errorf("existing application is not claimed by this client and provider; refusing adoption")
 	}
 	// Even errors before a guard can be read must not leave an owned provider
 	// attached. A failed API write is reported, never described as fail-closed.
 	defer func() {
 		if reconcileErr != nil {
-			if closeErr := c.managedRequest(ctx, http.MethodPatch, "core/applications/"+url.PathEscape(plan.Slug)+"/", map[string]any{"provider": nil, "policy_engine_mode": "all"}, nil); closeErr != nil {
+			if closeErr := c.managedRequest(ctx, http.MethodPatch, "core/applications/"+url.PathEscape(plan.Slug)+"/", map[string]any{"provider": nil, "policy_engine_mode": accessModeAll}, nil); closeErr != nil {
 				reconcileErr = fmt.Errorf("%w; could not disconnect provider: %v", reconcileErr, closeErr)
 			}
 		}
@@ -194,6 +182,53 @@ func (c *Client) ReconcileAccess(ctx context.Context, plan AccessPlan) (result *
 	if err != nil {
 		return nil, err
 	}
+	resolutionErr := c.validateAccessGroups(ctx, plan)
+	if resolutionErr == nil && app.Mode == accessModeAny && matchingAccess(bindings, guard.PK, plan.Groups) {
+		return app, nil
+	}
+	guardBinding, err := c.lockAccess(ctx, plan.Slug, app.PK, guard.PK, bindings)
+	if err != nil {
+		return nil, err
+	}
+	if resolutionErr != nil {
+		return nil, resolutionErr
+	}
+	if err := c.replaceAccessBindings(ctx, plan, app.PK, guard.PK, guardBinding, bindings, initiallyManaged); err != nil {
+		return nil, err
+	}
+	if err := c.accessMode(ctx, plan.Slug, accessModeAny); err != nil {
+		return nil, err
+	}
+	app.Mode = accessModeAny
+	return app, nil
+}
+func (c *Client) ConnectApplication(ctx context.Context, slug, name string, providerID int32) error {
+	return c.managedRequest(ctx, http.MethodPatch, "core/applications/"+url.PathEscape(slug)+"/", map[string]any{"name": name, "provider": providerID}, nil)
+}
+
+func (c *Client) claimAccessApplication(ctx context.Context, plan AccessPlan) (*AccessApplication, error) {
+	if plan.Slug == "" || plan.Owner == "" {
+		return nil, fmt.Errorf("application identity required")
+	}
+	var app AccessApplication
+	err := c.managedRequest(ctx, http.MethodGet, "core/applications/"+url.PathEscape(plan.Slug)+"/", nil, &app)
+	if err != nil && !isManagedNotFound(err) {
+		return nil, err
+	}
+	if isManagedNotFound(err) {
+		payload := map[string]any{"name": plan.Name, "slug": plan.Slug, "provider": nil, "policy_engine_mode": accessModeAll, "meta_description": applicationOwner(plan.Owner)}
+		if err := c.managedRequest(ctx, http.MethodPost, "core/applications/", payload, &app); err != nil {
+			return nil, err
+		}
+		if app.PK == "" || app.Slug != plan.Slug || app.Provider != 0 || app.Description != applicationOwner(plan.Owner) {
+			return nil, fmt.Errorf("disconnected application creation verification failed")
+		}
+	} else if (!plan.ClaimExisting && app.Description != applicationOwner(plan.Owner)) || (app.Provider != 0 && app.Provider != plan.ProviderID) {
+		return nil, fmt.Errorf("existing application is not claimed by this client and provider; refusing adoption")
+	}
+	return &app, nil
+}
+func (c *Client) validateAccessGroups(ctx context.Context, plan AccessPlan) error {
 	resolutionErr := plan.ResolutionError
 	if len(plan.Groups) == 0 && resolutionErr == nil {
 		resolutionErr = fmt.Errorf("at least one allowed group is required")
@@ -208,74 +243,67 @@ func (c *Client) ReconcileAccess(ctx context.Context, plan AccessPlan) (result *
 			resolutionErr = err
 		}
 	}
-	if resolutionErr == nil && app.Mode == "any" && matchingAccess(bindings, guard.PK, plan.Groups) {
-		return &app, nil
-	}
+	return resolutionErr
+}
+func (c *Client) lockAccess(ctx context.Context, slug, target, guardID string, bindings []AccessBinding) (string, error) {
 	// Always retain a deny binding. Add a new guard before deleting any binding.
 	guardBinding := ""
 	for _, b := range bindings {
-		if b.Policy == guard.PK && b.Group == "" && canonicalBinding(b) {
+		if b.Policy == guardID && b.Group == "" && canonicalBinding(b) {
 			guardBinding = b.PK
 			break
 		}
 	}
 	if guardBinding == "" {
-		b := AccessBinding{Target: app.PK, Policy: guard.PK, Enabled: true, Order: 0}
+		b := AccessBinding{Target: target, Policy: guardID, Enabled: true, Order: 0}
 		if err := c.managedRequest(ctx, http.MethodPost, "policies/bindings/", b, &b); err != nil {
-			return nil, err
+			return "", err
 		}
 		guardBinding = b.PK
 	}
-	if err := c.accessMode(ctx, plan.Slug, "all"); err != nil {
-		return nil, err
+	if err := c.accessMode(ctx, slug, accessModeAll); err != nil {
+		return "", err
 	}
-	if resolutionErr != nil {
-		return nil, resolutionErr
-	}
+	return guardBinding, nil
+}
+func (c *Client) replaceAccessBindings(ctx context.Context, plan AccessPlan, target, guardID, guardBinding string, bindings []AccessBinding, initiallyManaged bool) error {
 	// Once an app is managed, group-only canonical grants belong to the client.
 	// Every other binding requires an explicit inventoried replacement ID.
 	for _, b := range bindings {
 		if b.PK == guardBinding {
 			continue
 		}
-		ownedGroup := (initiallyManaged && b.Policy == "" && b.Group != "" && b.User == 0) || b.Policy == guard.PK
+		ownedGroup := (initiallyManaged && b.Policy == "" && b.Group != "" && b.User == 0) || b.Policy == guardID
 		if !ownedGroup && !slices.Contains(plan.ReplacesBindings, b.PK) {
-			return nil, fmt.Errorf("unapproved existing application binding %s", b.PK)
+			return fmt.Errorf("unapproved existing application binding %s", b.PK)
 		}
 	}
 	// Claim only after the entire original binding inventory was approved, before
 	// creating replacement bindings. A restart can then identify partial grants.
 	if err := c.managedRequest(ctx, http.MethodPatch, "core/applications/"+url.PathEscape(plan.Slug)+"/", map[string]any{"meta_description": applicationOwner(plan.Owner)}, nil); err != nil {
-		return nil, err
+		return err
 	}
 	for _, b := range bindings {
 		if b.PK == guardBinding {
 			continue
 		}
 		if err := c.managedRequest(ctx, http.MethodDelete, "policies/bindings/"+url.PathEscape(b.PK)+"/", nil, nil); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	for i, g := range plan.Groups {
-		b := AccessBinding{Target: app.PK, Group: g.ID, Enabled: true, Order: i + 10}
+		b := AccessBinding{Target: target, Group: g.ID, Enabled: true, Order: i + 10}
 		if err := c.managedRequest(ctx, http.MethodPost, "policies/bindings/", b, nil); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	// Read back the entire set before opening the application.
-	verified, err := c.bindings(ctx, app.PK)
+	verified, err := c.bindings(ctx, target)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if !matchingAccess(verified, guard.PK, plan.Groups) {
-		return nil, fmt.Errorf("application binding verification failed")
+	if !matchingAccess(verified, guardID, plan.Groups) {
+		return fmt.Errorf("application binding verification failed")
 	}
-	if err := c.accessMode(ctx, plan.Slug, "any"); err != nil {
-		return nil, err
-	}
-	app.Mode = "any"
-	return &app, nil
-}
-func (c *Client) ConnectApplication(ctx context.Context, slug, name string, providerID int32) error {
-	return c.managedRequest(ctx, http.MethodPatch, "core/applications/"+url.PathEscape(slug)+"/", map[string]any{"name": name, "provider": providerID}, nil)
+	return nil
 }

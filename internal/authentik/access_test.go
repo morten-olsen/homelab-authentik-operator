@@ -30,31 +30,31 @@ func TestGroupOwnershipAndMembership(t *testing.T) {
 			writes := 0
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {
-				case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/v3/core/users/"):
+				case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v3/core/users/"):
 					if tc.missing {
 						w.WriteHeader(404)
 						return
 					}
-					fmt.Fprint(w, `{"pk":7,"uuid":"person-uuid","is_active":true,"type":"internal"}`)
-				case r.Method == "GET":
+					_, _ = fmt.Fprint(w, `{"pk":7,"uuid":"person-uuid","is_active":true,"type":"internal"}`)
+				case r.Method == http.MethodGet:
 					gs := []ManagedGroup{}
 					if group != nil {
 						gs = append(gs, *group)
 					}
-					json.NewEncoder(w).Encode(map[string]any{"results": gs, "pagination": map[string]int{"next": 0}})
+					checkTestError(t, json.NewEncoder(w).Encode(map[string]any{"results": gs, "pagination": map[string]int{"next": 0}}))
 				default:
 					writes++
 					var payload map[string]any
-					json.NewDecoder(r.Body).Decode(&payload)
+					checkTestError(t, json.NewDecoder(r.Body).Decode(&payload))
 					if _, ok := payload["users"]; !ok {
 						t.Error("users must be serialized even when empty")
 					}
 					b, _ := json.Marshal(payload)
 					var g ManagedGroup
-					json.Unmarshal(b, &g)
+					checkTestError(t, json.Unmarshal(b, &g))
 					g.PK = "g1"
 					group = &g
-					json.NewEncoder(w).Encode(g)
+					checkTestError(t, json.NewEncoder(w).Encode(g))
 				}
 			}))
 			defer srv.Close()
@@ -78,106 +78,33 @@ func TestGroupOwnershipAndMembership(t *testing.T) {
 
 func TestAccessGuardedCutover(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		missing    bool
-		failCreate bool
-		approveOld bool
-		wantErr    bool
+		name                                     string
+		missing, failCreate, approveOld, wantErr bool
 	}{
 		{name: "replace allow all", approveOld: true},
 		{name: "unapproved binding", wantErr: true},
 		{name: "missing group", missing: true, approveOld: true, wantErr: true},
-		{name: "partial binding failure", failCreate: true, approveOld: true, wantErr: true},
+		{name: "partial failure", failCreate: true, approveOld: true, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			app := AccessApplication{PK: "app-1", Slug: "prod-example", Provider: 12, Mode: "any"}
-			bindings := []AccessBinding{{PK: "old-allow-all", Target: app.PK, Policy: "old-policy", Enabled: true}}
-			policy := GuardPolicy{PK: "guard-1", Name: "gitops/client/client-uid", Expression: guardExpression("client-uid")}
-			closed := false
-			sawClosed := false
-			violations := 0
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				p := r.URL.Path
-				switch {
-				case strings.Contains(p, "policies/expression"):
-					json.NewEncoder(w).Encode(map[string]any{"results": []GuardPolicy{policy}, "pagination": map[string]int{"next": 0}})
-				case strings.Contains(p, "core/groups"):
-					if tc.missing {
-						w.WriteHeader(404)
-						return
-					}
-					g := ManagedGroup{PK: "g1", Name: "gitops/prod/example", Attributes: map[string]any{groupOwnerKey: "group-uid"}, Users: []int32{7}}
-					if p == "/api/v3/core/groups/" {
-						json.NewEncoder(w).Encode(map[string]any{"results": []ManagedGroup{g}, "pagination": map[string]int{"next": 0}})
-					} else {
-						json.NewEncoder(w).Encode(g)
-					}
-				case p == "/api/v3/core/applications/prod-example/" && r.Method == "GET":
-					json.NewEncoder(w).Encode(app)
-				case strings.Contains(p, "core/applications") && r.Method == "PATCH":
-					var v map[string]any
-					json.NewDecoder(r.Body).Decode(&v)
-					if m, ok := v["policy_engine_mode"].(string); ok {
-						app.Mode = m
-					}
-					json.NewEncoder(w).Encode(app)
-				case strings.Contains(p, "policies/bindings") && r.Method == "GET":
-					json.NewEncoder(w).Encode(map[string]any{"results": bindings, "pagination": map[string]int{"next": 0}})
-				case strings.Contains(p, "policies/bindings") && r.Method == "POST":
-					var b AccessBinding
-					json.NewDecoder(r.Body).Decode(&b)
-					if b.Group != "" && tc.failCreate {
-						w.WriteHeader(500)
-						return
-					}
-					b.PK = fmt.Sprintf("b%d", len(bindings))
-					bindings = append(bindings, b)
-					json.NewEncoder(w).Encode(b)
-				case strings.Contains(p, "policies/bindings") && r.Method == "DELETE":
-					id := strings.TrimSuffix(strings.TrimPrefix(p, "/api/v3/policies/bindings/"), "/")
-					for i, b := range bindings {
-						if b.PK == id {
-							bindings = append(bindings[:i], bindings[i+1:]...)
-							break
-						}
-					}
-					w.WriteHeader(204)
-				default:
-					t.Errorf("unexpected request %s %s", r.Method, p)
-					w.WriteHeader(500)
-				}
-				guard := false
-				old := false
-				grant := false
-				for _, b := range bindings {
-					guard = guard || b.Policy == "guard-1"
-					old = old || b.PK == "old-allow-all"
-					grant = grant || b.Group == "g1"
-				}
-				closed = app.Mode == "all" && guard
-				if closed {
-					sawClosed = true
-				}
-				if sawClosed && !closed && (old || !guard || !grant || tc.wantErr) {
-					violations++
-				}
-			}))
+			f := &accessFixture{t: t, app: &AccessApplication{PK: "app-1", Slug: "prod-example", Provider: 12, Mode: accessModeAny}, policies: []GuardPolicy{}, bindings: []AccessBinding{{PK: "legacy", Target: "app-1", Policy: "old-policy", Enabled: true}}, missing: tc.missing, failCreate: tc.failCreate}
+			srv := httptest.NewServer(http.HandlerFunc(f.handler))
 			defer srv.Close()
-			plan := AccessPlan{Slug: app.Slug, Name: "example", Owner: "client-uid", ProviderID: 12, ClaimExisting: true, Groups: []GroupIdentity{{ID: "g1", Name: "gitops/prod/example", Owner: "group-uid", Users: []int32{7}}}}
+			plan := AccessPlan{Slug: "prod-example", Name: "example", Owner: "client-uid", ProviderID: 12, ClaimExisting: true, Groups: []GroupIdentity{{ID: "g1", Name: "gitops/prod/example", Owner: "group-uid", Users: []int32{7}}}}
 			if tc.approveOld {
-				plan.ReplacesBindings = []string{"old-allow-all"}
+				plan.ReplacesBindings = []string{"legacy"}
 			}
 			_, err := NewClient(srv.URL, "private-token", false, "").ReconcileAccess(context.Background(), plan)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("error=%v", err)
 			}
-			if !sawClosed || violations > 0 {
-				t.Fatalf("unsafe intermediate state: closed=%v violations=%d", sawClosed, violations)
+			if f.unsafe || !f.closed {
+				t.Fatal("unsafe intermediate state")
 			}
-			if tc.wantErr && !closed {
-				t.Fatal("error did not leave application closed")
+			if tc.wantErr && (f.app.Provider != 0 || f.app.Mode != accessModeAll) {
+				t.Fatal("error did not close application")
 			}
-			if !tc.wantErr && app.Mode != "any" {
+			if !tc.wantErr && f.app.Mode != accessModeAny {
 				t.Fatal("successful cutover not ANY")
 			}
 		})
@@ -186,7 +113,11 @@ func TestAccessGuardedCutover(t *testing.T) {
 
 // The fake keeps application state across new Client instances, representing
 // operator restarts. Faults are injected at every API call in a cutover.
+const testGuardID = "guard-1"
+
 type accessFixture struct {
+	missing, failCreate      bool
+	t                        *testing.T
 	app                      *AccessApplication
 	policies                 []GuardPolicy
 	bindings                 []AccessBinding
@@ -202,59 +133,94 @@ func (f *accessFixture) handler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(503)
 		return
 	}
-	if r.Method != "GET" {
+	if r.Method != http.MethodGet {
 		f.writes++
 	}
-	p := r.URL.Path
 	switch {
-	case p == "/api/v3/core/groups/":
-		json.NewEncoder(w).Encode(map[string]any{"results": []ManagedGroup{}, "pagination": map[string]int{"next": 0}})
-	case strings.HasPrefix(p, "/api/v3/core/groups/"):
-		json.NewEncoder(w).Encode(ManagedGroup{PK: "g1", Name: "gitops/prod/example", Users: []int32{7}, Attributes: map[string]any{groupOwnerKey: "group-uid"}})
-	case p == "/api/v3/policies/expression/" && r.Method == "GET":
-		json.NewEncoder(w).Encode(map[string]any{"results": f.policies, "pagination": map[string]int{"next": 0}})
-	case p == "/api/v3/policies/expression/" && r.Method == "POST":
-		var policy GuardPolicy
-		json.NewDecoder(r.Body).Decode(&policy)
-		policy.PK = "guard-1"
-		f.policies = append(f.policies, policy)
-		json.NewEncoder(w).Encode(policy)
-	case strings.HasPrefix(p, "/api/v3/core/applications/") && r.Method == "GET":
+	case strings.HasPrefix(r.URL.Path, "/api/v3/core/groups/"):
+		f.groupResponse(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v3/core/applications/"):
+		f.applicationResponse(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v3/policies/expression/"):
+		f.policyResponse(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/v3/policies/bindings/"):
+		f.bindingResponse(w, r)
+	default:
+		f.t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(500)
+	}
+	f.checkSafety()
+}
+func (f *accessFixture) groupResponse(w http.ResponseWriter, r *http.Request) {
+	if f.missing {
+		w.WriteHeader(404)
+		return
+	}
+	if r.URL.Path == "/api/v3/core/groups/" {
+		checkTestError(f.t, json.NewEncoder(w).Encode(map[string]any{"results": []ManagedGroup{}, "pagination": map[string]int{"next": 0}}))
+		return
+	}
+	checkTestError(f.t, json.NewEncoder(w).Encode(ManagedGroup{PK: "g1", Name: "gitops/prod/example", Users: []int32{7}, Attributes: map[string]any{groupOwnerKey: "group-uid"}}))
+}
+func (f *accessFixture) policyResponse(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		checkTestError(f.t, json.NewEncoder(w).Encode(map[string]any{"results": f.policies, "pagination": map[string]int{"next": 0}}))
+		return
+	}
+	var policy GuardPolicy
+	checkTestError(f.t, json.NewDecoder(r.Body).Decode(&policy))
+	policy.PK = testGuardID
+	f.policies = append(f.policies, policy)
+	checkTestError(f.t, json.NewEncoder(w).Encode(policy))
+}
+func (f *accessFixture) applicationResponse(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
 		if f.app == nil {
 			w.WriteHeader(404)
 			return
 		}
-		json.NewEncoder(w).Encode(f.app)
-	case p == "/api/v3/core/applications/" && r.Method == "POST":
+	case http.MethodPost:
 		f.app = &AccessApplication{}
-		json.NewDecoder(r.Body).Decode(f.app)
+		checkTestError(f.t, json.NewDecoder(r.Body).Decode(f.app))
 		f.app.PK = "app-1"
-		json.NewEncoder(w).Encode(f.app)
-	case strings.HasPrefix(p, "/api/v3/core/applications/") && r.Method == "PATCH":
+	case http.MethodPatch:
 		var patch map[string]json.RawMessage
-		json.NewDecoder(r.Body).Decode(&patch)
+		checkTestError(f.t, json.NewDecoder(r.Body).Decode(&patch))
 		if v, ok := patch["policy_engine_mode"]; ok {
-			json.Unmarshal(v, &f.app.Mode)
+			checkTestError(f.t, json.Unmarshal(v, &f.app.Mode))
 		}
 		if v, ok := patch["meta_description"]; ok {
-			json.Unmarshal(v, &f.app.Description)
+			checkTestError(f.t, json.Unmarshal(v, &f.app.Description))
 		}
 		if v, ok := patch["provider"]; ok {
 			f.app.Provider = 0
-			json.Unmarshal(v, &f.app.Provider)
+			checkTestError(f.t, json.Unmarshal(v, &f.app.Provider))
 		}
-		json.NewEncoder(w).Encode(f.app)
-	case p == "/api/v3/policies/bindings/" && r.Method == "GET":
-		json.NewEncoder(w).Encode(map[string]any{"results": f.bindings, "pagination": map[string]int{"next": 0}})
-	case p == "/api/v3/policies/bindings/" && r.Method == "POST":
+	default:
+		f.t.Error("unexpected application method")
+		w.WriteHeader(500)
+		return
+	}
+	checkTestError(f.t, json.NewEncoder(w).Encode(f.app))
+}
+func (f *accessFixture) bindingResponse(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		checkTestError(f.t, json.NewEncoder(w).Encode(map[string]any{"results": f.bindings, "pagination": map[string]int{"next": 0}}))
+	case http.MethodPost:
 		var b AccessBinding
-		json.NewDecoder(r.Body).Decode(&b)
+		checkTestError(f.t, json.NewDecoder(r.Body).Decode(&b))
+		if b.Group != "" && f.failCreate {
+			w.WriteHeader(503)
+			return
+		}
 		f.serial++
 		b.PK = fmt.Sprintf("binding-%d", f.serial)
 		f.bindings = append(f.bindings, b)
-		json.NewEncoder(w).Encode(b)
-	case strings.HasPrefix(p, "/api/v3/policies/bindings/") && r.Method == "DELETE":
-		id := strings.TrimSuffix(strings.TrimPrefix(p, "/api/v3/policies/bindings/"), "/")
+		checkTestError(f.t, json.NewEncoder(w).Encode(b))
+	case http.MethodDelete:
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v3/policies/bindings/"), "/")
 		for i, b := range f.bindings {
 			if b.PK == id {
 				f.bindings = append(f.bindings[:i], f.bindings[i+1:]...)
@@ -263,28 +229,33 @@ func (f *accessFixture) handler(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(204)
 	default:
+		f.t.Error("unexpected binding method")
 		w.WriteHeader(500)
 	}
-	if f.app != nil {
-		guard, old := false, false
-		for _, b := range f.bindings {
-			guard = guard || b.Policy == "guard-1"
-			old = old || b.Policy == "old-policy"
-		}
-		nowClosed := f.app.Provider == 0 || (f.app.Mode == "all" && guard)
-		if f.closed && !nowClosed && (old || !guard || len(f.bindings) < 2) {
-			f.unsafe = true
-		}
-		f.closed = f.closed || nowClosed
-	}
 }
+func (f *accessFixture) checkSafety() {
+	if f.app == nil {
+		return
+	}
+	guard, old := false, false
+	for _, b := range f.bindings {
+		guard = guard || b.Policy == testGuardID
+		old = old || b.Policy == "old-policy"
+	}
+	nowClosed := f.app.Provider == 0 || (f.app.Mode == accessModeAll && guard)
+	if f.closed && !nowClosed && (old || !guard || len(f.bindings) < 2) {
+		f.unsafe = true
+	}
+	f.closed = f.closed || nowClosed
+}
+
 func TestRestartAfterEveryPartialAccessFailure(t *testing.T) {
 	for _, newApp := range []bool{false, true} {
 		for fault := 0; fault <= 18; fault++ {
 			t.Run(fmt.Sprintf("new=%v/fault=%d", newApp, fault), func(t *testing.T) {
-				f := &accessFixture{policies: []GuardPolicy{}, bindings: []AccessBinding{}, failAt: fault}
+				f := &accessFixture{t: t, policies: []GuardPolicy{}, bindings: []AccessBinding{}, failAt: fault}
 				if !newApp {
-					f.app = &AccessApplication{PK: "app-1", Slug: "prod-example", Provider: 12, Mode: "any"}
+					f.app = &AccessApplication{PK: "app-1", Slug: "prod-example", Provider: 12, Mode: accessModeAny}
 					f.bindings = []AccessBinding{{PK: "legacy", Target: "app-1", Policy: "old-policy", Enabled: true}}
 				}
 				srv := httptest.NewServer(http.HandlerFunc(f.handler))
@@ -306,7 +277,7 @@ func TestRestartAfterEveryPartialAccessFailure(t *testing.T) {
 				if f.writes != before {
 					t.Fatal("stable reconciliation wrote Authentik state")
 				}
-				if f.unsafe || f.app.Provider != 12 || f.app.Mode != "any" || len(f.bindings) != 2 {
+				if f.unsafe || f.app.Provider != 12 || f.app.Mode != accessModeAny || len(f.bindings) != 2 {
 					t.Fatalf("unsafe final or intermediate state: %+v", f)
 				}
 			})
@@ -324,7 +295,7 @@ func TestIdentityChecksAndErrorRedaction(t *testing.T) {
 		{"server error", `{"secret":"never-log-this"}`, 500},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(tc.status); fmt.Fprint(w, tc.body) }))
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(tc.status); _, _ = fmt.Fprint(w, tc.body) }))
 			defer srv.Close()
 			_, err := NewClient(srv.URL, "token-never-log", false, "").ResolveMembers(context.Background(), []UserReference{{ID: 7, UUID: "person"}})
 			if err == nil {
@@ -342,24 +313,24 @@ func TestGroupDeletionRevokesAndRetainsIdentity(t *testing.T) {
 		t.Run("owner="+owner, func(t *testing.T) {
 			writes := 0
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method == "GET" {
+				if r.Method == http.MethodGet {
 					groups := []ManagedGroup{}
 					if owner != "" {
 						groups = append(groups, ManagedGroup{PK: "g1", Name: "gitops/prod/example", Users: []int32{7}, Attributes: map[string]any{groupOwnerKey: owner}})
 					}
-					json.NewEncoder(w).Encode(map[string]any{"results": groups, "pagination": map[string]int{"next": 0}})
+					checkTestError(t, json.NewEncoder(w).Encode(map[string]any{"results": groups, "pagination": map[string]int{"next": 0}}))
 					return
 				}
 				writes++
-				if r.Method != "PUT" || r.URL.Path != "/api/v3/core/groups/g1/" {
+				if r.Method != http.MethodPut || r.URL.Path != "/api/v3/core/groups/g1/" {
 					t.Errorf("identity was created or deleted: %s %s", r.Method, r.URL.Path)
 				}
 				var group ManagedGroup
-				json.NewDecoder(r.Body).Decode(&group)
+				checkTestError(t, json.NewDecoder(r.Body).Decode(&group))
 				if len(group.Users) != 0 || group.IsSuperuser || len(group.Roles) > 0 || len(group.Parents) > 0 {
 					t.Errorf("not revoked: %+v", group)
 				}
-				json.NewEncoder(w).Encode(group)
+				checkTestError(t, json.NewEncoder(w).Encode(group))
 			}))
 			defer srv.Close()
 			err := NewClient(srv.URL, "private", false, "").RevokeGroup(context.Background(), GroupIdentity{Name: "gitops/prod/example", Owner: "group-uid"})
@@ -397,13 +368,13 @@ func TestManagedGroupRejectsPrivilegeAndHierarchyDrift(t *testing.T) {
 				group.Attributes[groupOwnerKey] = "foreign"
 			}
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != "GET" {
+				if r.Method != http.MethodGet {
 					t.Fatal("validation mutated identity")
 				}
 				if strings.HasSuffix(r.URL.Path, "/g1/") {
-					json.NewEncoder(w).Encode(group)
+					checkTestError(t, json.NewEncoder(w).Encode(group))
 				} else {
-					json.NewEncoder(w).Encode(map[string]any{"results": groups, "pagination": map[string]int{"next": 0}})
+					checkTestError(t, json.NewEncoder(w).Encode(map[string]any{"results": groups, "pagination": map[string]int{"next": 0}}))
 				}
 			}))
 			defer srv.Close()
@@ -411,5 +382,12 @@ func TestManagedGroupRejectsPrivilegeAndHierarchyDrift(t *testing.T) {
 				t.Fatal("unsafe group accepted")
 			}
 		})
+	}
+}
+
+func checkTestError(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Errorf("test JSON I/O failed: %v", err)
 	}
 }

@@ -240,7 +240,7 @@ special `admin` behavior. Inspect user IDs/UUIDs through the authenticated
 Authentik API without logging credentials; never identify members by display name.
 
 Local and Woodpecker PR validation uses `mise install && task ci:quality`
-(build, `make test` including envtest, generated CRD/RBAC drift and Helm rendering).
+(build, `make test` including envtest, `make lint`, generated CRD/RBAC drift and Helm rendering).
 The service-image delivery shape and existing GitHub mirror release workflow are
 preserved: merging main validates without publishing. An explicitly approved
 Forgejo version tag publishes the reviewed chart/image version. The new quality workflow uses the existing ci/mise image and no secrets;

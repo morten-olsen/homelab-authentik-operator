@@ -64,9 +64,9 @@ func (c *Client) managedRequest(ctx context.Context, method, path string, body, 
 	req = req.WithContext(bounded)
 	resp, err := transport.Do(req)
 	if err != nil {
-		return fmt.Errorf("Authentik %s request failed", method)
+		return fmt.Errorf("authentik %s request failed", method)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &managedHTTPError{Status: resp.StatusCode, Method: method}
 	}
@@ -117,7 +117,7 @@ func managedList[T any](ctx context.Context, c *Client, path string) ([]T, error
 			return result, nil
 		}
 	}
-	return nil, fmt.Errorf("Authentik pagination exceeded safety limit")
+	return nil, fmt.Errorf("authentik pagination exceeded safety limit")
 }
 
 func (c *Client) ResolveMembers(ctx context.Context, refs []UserReference) ([]int32, error) {
@@ -200,7 +200,7 @@ func (c *Client) ReconcileGroup(ctx context.Context, identity GroupIdentity, ref
 		return &group, memberErr
 	}
 	if group.PK == "" || !groupMatches(group, desired) {
-		return nil, fmt.Errorf("Authentik did not persist exact group fields")
+		return nil, fmt.Errorf("authentik did not persist exact group fields")
 	}
 	return &group, nil
 }
