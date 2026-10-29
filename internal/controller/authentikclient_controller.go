@@ -291,6 +291,15 @@ func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcCli
 	oidcClient.Status.ClientID = provider.GetClientId()
 	r.setCondition(oidcClient, "ProviderReady", metav1.ConditionTrue, "Reconciled", "OAuth2 provider is ready")
 
+	// Persist provider identity before attaching it. A concurrent group event can
+	// conflict this status write; do not attach a newly selected provider until
+	// its identity has been recorded successfully.
+	if managedAccess {
+		if err := r.Status().Update(ctx, oidcClient); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Create or update Application
 	appSlug := slugify(providerName)
 	var appErr error

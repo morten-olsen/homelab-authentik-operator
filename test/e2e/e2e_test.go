@@ -514,6 +514,24 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(managed).To(Equal("true"))
 
+			By("recovering provider status loss without replacing the provider")
+			cmd = exec.Command("kubectl", "get", "authentikclient", "e2e-test-client", "-n", namespace, "-o", "jsonpath={.status.providerID}")
+			originalProvider, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(originalProvider).NotTo(BeEmpty())
+			Expect(originalProvider).NotTo(Equal("0"))
+			cmd = exec.Command("kubectl", "patch", "authentikclient", "e2e-test-client", "-n", namespace,
+				"--subresource=status", "--type=merge", "-p", `{"status":{"providerID":0,"ready":false}}`)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "authentikclient", "e2e-test-client", "-n", namespace,
+					"-o", "jsonpath={.status.ready}:{.status.providerID}")
+				state, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(state).To(Equal("true:" + originalProvider))
+			}, 5*time.Minute, time.Second).Should(Succeed())
+
 			By("cleaning up client, group and server while finalizers can finish")
 			cmd = exec.Command("kubectl", "delete", "authentikclient", "e2e-test-client", "-n", namespace)
 			_, _ = utils.Run(cmd)
