@@ -262,3 +262,31 @@ revokes that group before deleting the server. The PR quality task compiles this
 fixture; full Kind execution uses the existing mirrored E2E Tests workflow.
 Docker and Kind are not present in the Mission Control task container, so a local
 compile is not reported as a full isolated runtime acceptance run.
+
+## Forward-auth proxy providers
+
+Operator 0.3.0 adds `AuthentikProxyProvider` for applications that cannot speak
+OIDC and are protected by a reverse proxy using Authentik forward auth (for
+example Istio ext_authz). See
+[the design and ownership rules](docs/adr/0002-forward-auth-proxy-providers.md).
+
+```yaml
+apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
+kind: AuthentikProxyProvider
+metadata:
+  name: whoami
+  namespace: prod
+spec:
+  serverRef: {name: authentik, namespace: shared}
+  name: whoami
+  externalHost: https://whoami.example.com
+  accessTokenValidity: hours=8
+  allowedGroups: [{name: admin, namespace: shared}]
+```
+
+The operator creates the `forward_single` provider and its application with
+the same guarded access as `AuthentikClient`, then serves it from the embedded
+outpost, whose `authentik_host` it sets to `https://<server host>`. Omitting
+`allowedGroups` denies everyone. The reverse proxy must also route
+`/outpost.goauthentik.io/` on the protected host to the Authentik server for
+the login callback.

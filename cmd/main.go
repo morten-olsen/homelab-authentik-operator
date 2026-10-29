@@ -192,6 +192,12 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "AuthentikClient")
 		os.Exit(1)
 	}
+	if err := (&controller.AuthentikProxyProviderReconciler{
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "AuthentikProxyProvider")
+		os.Exit(1)
+	}
 	if err := (&controller.AuthentikGroupReconciler{
 		Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
