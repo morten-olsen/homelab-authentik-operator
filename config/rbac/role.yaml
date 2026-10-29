@@ -46,6 +46,7 @@ rules:
   - authentik.homelab.mortenolsen.pro
   resources:
   - authentikclients/finalizers
+  - authentikgroups/finalizers
   - authentikservers/finalizers
   verbs:
   - update
@@ -53,8 +54,19 @@ rules:
   - authentik.homelab.mortenolsen.pro
   resources:
   - authentikclients/status
+  - authentikgroups/status
   - authentikservers/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - authentik.homelab.mortenolsen.pro
+  resources:
+  - authentikgroups
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch

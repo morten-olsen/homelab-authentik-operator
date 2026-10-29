@@ -89,7 +89,7 @@ var _ = Describe("Manager", Ordered, func() {
 	AfterAll(func() {
 		// Finalizers need the running operator; remove its resources before undeploying it.
 		By("deleting test clients and servers while the controller is running")
-		for _, resource := range []string{"authentikclients", "authentikservers"} {
+		for _, resource := range []string{"authentikclients", "authentikgroups", "authentikservers"} {
 			cmd := exec.Command("kubectl", "delete", resource, "--all", "-n", namespace,
 				"--ignore-not-found", "--timeout=60s")
 			_, _ = utils.Run(cmd)
@@ -435,8 +435,19 @@ spec:
 		})
 
 		It("should reconcile an AuthentikClient against the defaulted server", func() {
-			By("applying the AuthentikClient CR")
+			By("applying one single-owned group before its AuthentikClient")
 			authentikClientYAML := `
+apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
+kind: AuthentikGroup
+metadata:
+  name: e2e-test-access
+  namespace: ` + namespace + `
+spec:
+  serverRef:
+    name: e2e-test-server
+    namespace: ` + namespace + `
+  members: []
+---
 apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
 kind: AuthentikClient
 metadata:
@@ -447,6 +458,9 @@ spec:
     name: e2e-test-server
     namespace: ` + namespace + `
   name: "Test Client"
+  allowedGroups:
+    - name: e2e-test-access
+      namespace: ` + namespace + `
   redirectUris:
     - https://app.e2e-test.local/callback
 `
@@ -477,6 +491,14 @@ spec:
 			}
 			Eventually(verifyServerReady, 5*time.Minute, 5*time.Second).Should(Succeed())
 
+			By("verifying that the group reconciles before the client is ready")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "authentikgroup", "e2e-test-access", "-n", namespace, "-o", "jsonpath={.status.ready}")
+				ready, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(ready).To(Equal("true"))
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
 			By("verifying that the client is eventually ready")
 			verifyClientReady := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "authentikclient", "e2e-test-client",
@@ -487,8 +509,15 @@ spec:
 			}
 			Eventually(verifyClientReady, 5*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("cleaning up the AuthentikClient and AuthentikServer")
+			cmd = exec.Command("kubectl", "get", "authentikclient", "e2e-test-client", "-n", namespace, "-o", "jsonpath={.status.accessManaged}")
+			managed, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(managed).To(Equal("true"))
+
+			By("cleaning up client, group and server while finalizers can finish")
 			cmd = exec.Command("kubectl", "delete", "authentikclient", "e2e-test-client", "-n", namespace)
+			_, _ = utils.Run(cmd)
+			cmd = exec.Command("kubectl", "delete", "authentikgroup", "e2e-test-access", "-n", namespace)
 			_, _ = utils.Run(cmd)
 			cmd = exec.Command("kubectl", "delete", "authentikserver", "e2e-test-server", "-n", namespace)
 			_, _ = utils.Run(cmd)

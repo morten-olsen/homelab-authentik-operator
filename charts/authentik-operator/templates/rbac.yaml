@@ -33,6 +33,16 @@ rules:
 - apiGroups:
   - authentik.homelab.mortenolsen.pro
   resources:
+  - authentikgroups
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - patch
+- apiGroups:
+  - authentik.homelab.mortenolsen.pro
+  resources:
   - authentikclients
   - authentikservers
   verbs:
@@ -46,6 +56,7 @@ rules:
 - apiGroups:
   - authentik.homelab.mortenolsen.pro
   resources:
+  - authentikgroups/finalizers
   - authentikclients/finalizers
   - authentikservers/finalizers
   verbs:
@@ -53,6 +64,7 @@ rules:
 - apiGroups:
   - authentik.homelab.mortenolsen.pro
   resources:
+  - authentikgroups/status
   - authentikclients/status
   - authentikservers/status
   verbs:

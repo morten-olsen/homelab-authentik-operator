@@ -24,10 +24,12 @@ import (
 type NamespacedName struct {
 	// name is the name of the resource
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
 	// namespace is the namespace of the resource
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
 	Namespace string `json:"namespace"`
 }
 
@@ -35,10 +37,28 @@ type NamespacedName struct {
 type AuthentikClientSpec struct {
 	// serverRef references the AuthentikServer to create the client on
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="serverRef is immutable"
 	ServerRef NamespacedName `json:"serverRef"`
+
+	// allowedGroups grants access when any listed AuthentikGroup matches.
+	// Explicitly empty denies access. Omission preserves only an existing legacy
+	// client's access during staged migration; once managed, omission denies too.
+	// +optional
+	// +listType=map
+	// +listMapKey=namespace
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=64
+	AllowedGroups *[]NamespacedName `json:"allowedGroups,omitempty"`
+
+	// replacesBindings explicitly approves removal of inventoried pre-migration
+	// application bindings. No unrelated application or group is modified.
+	// +optional
+	// +listType=set
+	ReplacesBindings []string `json:"replacesBindings,omitempty"`
 
 	// name is the display name for the OAuth2 client in Authentik
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
 	// redirectUris are the allowed redirect URIs for the client
@@ -98,6 +118,11 @@ type AuthentikClientSpec struct {
 type AuthentikClientStatus struct {
 	// ready indicates whether the OIDC client is ready
 	Ready bool `json:"ready"`
+
+	// accessManaged records the sticky opt-in to GitOps access reconciliation.
+	// Once true, removing allowedGroups cannot restore legacy allow-all behavior.
+	// +optional
+	AccessManaged bool `json:"accessManaged,omitempty"`
 
 	// clientID is the OAuth2 client ID
 	// +optional

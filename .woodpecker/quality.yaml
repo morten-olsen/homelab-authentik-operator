@@ -1,0 +1,9 @@
+when:
+  - event: [pull_request, push, manual]
+
+steps:
+  quality:
+    image: code.olsen.cloud/ci/mise:latest@sha256:7594352040e249ee8a75b2478e8373572f133022f2be9f7d882941b84dae9dd6
+    commands:
+      - mise install
+      - task ci:quality

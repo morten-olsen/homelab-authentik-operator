@@ -32,6 +32,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	api "goauthentik.io/api/v3"
@@ -196,6 +197,10 @@ func (r *AuthentikClientReconciler) handleDeletion(ctx context.Context, oidcClie
 
 func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcClient *authentikv1alpha1.AuthentikClient, server *authentikv1alpha1.AuthentikServer, apiClient *authentik.Client) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+	managedAccess, err := r.prepareAccess(ctx, oidcClient, apiClient)
+	if err != nil {
+		return ctrl.Result{RequeueAfter: accessResync}, err
+	}
 	// Set default values
 	if oidcClient.Spec.ClientType == "" {
 		oidcClient.Spec.ClientType = "confidential"
@@ -288,7 +293,14 @@ func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcCli
 
 	// Create or update Application
 	appSlug := slugify(providerName)
-	if err := r.reconcileApplication(ctx, oidcClient, appSlug, provider, apiClient); err != nil {
+	var appErr error
+	if managedAccess {
+		appErr = apiClient.ConnectApplication(ctx, appSlug, oidcClient.Spec.Name, provider.GetPk())
+	} else {
+		appErr = r.reconcileApplication(ctx, oidcClient, appSlug, provider, apiClient)
+	}
+	if appErr != nil {
+		err := appErr
 		return ctrl.Result{RequeueAfter: time.Minute}, err
 	}
 
@@ -319,7 +331,7 @@ func (r *AuthentikClientReconciler) reconcileNormal(ctx context.Context, oidcCli
 		"clientId", oidcClient.Status.ClientID,
 		"secretName", oidcClient.Status.SecretName)
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: accessResync}, nil
 }
 
 func (r *AuthentikClientReconciler) reconcileApplication(ctx context.Context, oidcClient *authentikv1alpha1.AuthentikClient, appSlug string, provider *api.OAuth2Provider, apiClient *authentik.Client) error {
@@ -426,7 +438,11 @@ func (r *AuthentikClientReconciler) cleanupAuthentikResources(ctx context.Contex
 }
 
 func (r *AuthentikClientReconciler) setCondition(oidcClient *authentikv1alpha1.AuthentikClient, conditionType string, status metav1.ConditionStatus, reason, message string) {
+	if status == metav1.ConditionFalse {
+		oidcClient.Status.Ready = false
+	}
 	meta.SetStatusCondition(&oidcClient.Status.Conditions, metav1.Condition{
+		ObservedGeneration: oidcClient.Generation,
 		Type:               conditionType,
 		Status:             status,
 		Reason:             reason,
@@ -451,6 +467,7 @@ func (r *AuthentikClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&authentikv1alpha1.AuthentikClient{}).
 		Owns(&corev1.Secret{}).
+		Watches(&authentikv1alpha1.AuthentikGroup{}, handler.EnqueueRequestsFromMapFunc(r.clientsForGroup)).
 		Named("authentikclient").
 		Complete(r)
 }

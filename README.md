@@ -212,7 +212,53 @@ and delete clients and servers before undeploying the controller so their
 finalizers can finish. Namespace cleanup has a bounded wait. Runtime credentials
 and data are not used by these isolated tests.
 
+## GitOps groups and access
+
+Operator 0.2.0 adds `AuthentikGroup` and `AuthentikClient.allowedGroups`. See
+[ownership and cutover rules](docs/adr/0001-gitops-groups-and-access.md) before
+upgrading. User provisioning is outside this feature.
+
+```yaml
+apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
+kind: AuthentikGroup
+metadata:
+  name: app-access
+  namespace: prod
+spec:
+  serverRef: {name: authentik, namespace: shared}
+  members:
+    - id: 123
+      uuid: 11111111-2222-4333-8444-555555555555
+```
+
+Reference it from a client with
+`allowedGroups: [{name: app-access, namespace: prod}]`. An empty list denies
+access. Once a client has opted in, removing the list also denies access.
+The group owns its complete direct membership; UI edits are drift. Remote renames
+are repaired using the stable group ID and ownership UID, including recovery
+when status is lost. Ambiguous ownership blocks writes. Deletion revokes and reads
+back managed fields before releasing its finalizer, retaining the remote identity.
+Backing groups
+never grant Authentik superuser or role privileges, and the operator has no
+special `admin` behavior. Inspect user IDs/UUIDs through the authenticated
+Authentik API without logging credentials; never identify members by display name.
+
+Local and Woodpecker PR validation uses `mise install && task ci:quality`
+(build, `make test` including envtest, `make lint`, generated CRD/RBAC drift and Helm rendering).
+The service-image delivery shape and existing GitHub mirror release workflow are
+preserved: merging main validates without publishing. An explicitly approved
+Forgejo version tag publishes the reviewed chart/image version. The new quality workflow uses the existing ci/mise image and no secrets;
+it does not publish or change release mechanics.
 ## Release ownership
 
 See [Operator releases](docs/releases.md) for approved Forgejo tags, publication
 checks, version immutability and recovery. Main merges validate without publishing.
+
+The PR runner obtains Python 3.13.16 through mise for the release-safety regression
+suite; it does not assume python3 is installed in the ci/mise base image.
+
+The isolated Kind fixture provisions an empty managed group before its client and
+revokes that group before deleting the server. The PR quality task compiles this
+fixture; full Kind execution uses the existing mirrored E2E Tests workflow.
+Docker and Kind are not present in the Mission Control task container, so a local
+compile is not reported as a full isolated runtime acceptance run.
