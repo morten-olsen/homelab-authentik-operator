@@ -44,6 +44,7 @@ rules:
   - authentik.homelab.mortenolsen.pro
   resources:
   - authentikclients
+  - authentikproxyproviders
   - authentikservers
   verbs:
   - create
@@ -58,6 +59,7 @@ rules:
   resources:
   - authentikgroups/finalizers
   - authentikclients/finalizers
+  - authentikproxyproviders/finalizers
   - authentikservers/finalizers
   verbs:
   - update
@@ -66,6 +68,7 @@ rules:
   resources:
   - authentikgroups/status
   - authentikclients/status
+  - authentikproxyproviders/status
   - authentikservers/status
   verbs:
   - get

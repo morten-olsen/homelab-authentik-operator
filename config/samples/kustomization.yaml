@@ -2,4 +2,5 @@
 resources:
 - authentik_v1alpha1_authentikserver.yaml
 - authentik_v1alpha1_authentikclient.yaml
+- authentik_v1alpha1_authentikproxyprovider.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

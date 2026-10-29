@@ -37,25 +37,7 @@ func (r *AuthentikClientReconciler) prepareAccess(ctx context.Context, c *authv1
 	}
 	slug := slugify(fmt.Sprintf("%s-%s", c.Namespace, c.Name))
 	plan := authentik.AccessPlan{Slug: slug, Name: c.Spec.Name, Owner: string(c.UID), ProviderID: int32(c.Status.ProviderID), ClaimExisting: c.Status.ApplicationID == slug && c.Status.ProviderID > 0, ReplacesBindings: c.Spec.ReplacesBindings}
-	for _, ref := range allowedGroups(c) {
-		var group authv1.AuthentikGroup
-		if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}, &group); err != nil {
-			plan.ResolutionError = fmt.Errorf("allowed group %s/%s unavailable", ref.Namespace, ref.Name)
-			break
-		}
-		if group.Spec.ServerRef != c.Spec.ServerRef || !group.DeletionTimestamp.IsZero() || !group.Status.Ready || group.Status.ObservedGeneration != group.Generation {
-			plan.ResolutionError = fmt.Errorf("allowed group %s/%s is not ready on this server", ref.Namespace, ref.Name)
-			break
-		}
-		id := groupIdentity(&group)
-		var err error
-		id.Users, err = apiClient.ResolveMembers(ctx, groupMembers(&group))
-		if err != nil {
-			plan.ResolutionError = err
-			break
-		}
-		plan.Groups = append(plan.Groups, id)
-	}
+	plan.Groups, plan.ResolutionError = resolveAllowedGroups(ctx, r.Client, apiClient, c.Spec.ServerRef, allowedGroups(c))
 	_, err := apiClient.ReconcileAccess(ctx, plan)
 	if err != nil {
 		r.setCondition(c, "AccessReady", metav1.ConditionFalse, "ReconcileFailed", err.Error())
@@ -66,6 +48,31 @@ func (r *AuthentikClientReconciler) prepareAccess(ctx context.Context, c *authv1
 	r.setCondition(c, "AccessReady", metav1.ConditionTrue, "Reconciled", "Exact allowed groups and ANY bindings verified")
 	return true, nil
 }
+
+// resolveAllowedGroups turns group references into verified Authentik
+// identities. Any unavailable, foreign-server or not-ready group is returned as
+// a resolution error, which ReconcileAccess turns into a closed application.
+func resolveAllowedGroups(ctx context.Context, c client.Client, apiClient *authentik.Client, serverRef authv1.NamespacedName, refs []authv1.NamespacedName) ([]authentik.GroupIdentity, error) {
+	groups := make([]authentik.GroupIdentity, 0, len(refs))
+	for _, ref := range refs {
+		var group authv1.AuthentikGroup
+		if err := c.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ref.Namespace}, &group); err != nil {
+			return groups, fmt.Errorf("allowed group %s/%s unavailable", ref.Namespace, ref.Name)
+		}
+		if group.Spec.ServerRef != serverRef || !group.DeletionTimestamp.IsZero() || !group.Status.Ready || group.Status.ObservedGeneration != group.Generation {
+			return groups, fmt.Errorf("allowed group %s/%s is not ready on this server", ref.Namespace, ref.Name)
+		}
+		id := groupIdentity(&group)
+		var err error
+		id.Users, err = apiClient.ResolveMembers(ctx, groupMembers(&group))
+		if err != nil {
+			return groups, err
+		}
+		groups = append(groups, id)
+	}
+	return groups, nil
+}
+
 func (r *AuthentikClientReconciler) clientsForGroup(ctx context.Context, obj client.Object) []ctrl.Request {
 	var clients authv1.AuthentikClientList
 	if err := r.List(ctx, &clients); err != nil {

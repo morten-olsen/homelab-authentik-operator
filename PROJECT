@@ -27,4 +27,13 @@ resources:
   kind: AuthentikClient
   path: github.com/mortenolsen/operator-authentik/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: homelab.mortenolsen.pro
+  group: authentik
+  kind: AuthentikProxyProvider
+  path: github.com/mortenolsen/operator-authentik/api/v1alpha1
+  version: v1alpha1
 version: "3"

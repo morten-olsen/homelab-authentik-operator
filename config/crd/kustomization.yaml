@@ -5,6 +5,7 @@ resources:
 - bases/authentik.homelab.mortenolsen.pro_authentikservers.yaml
 - bases/authentik.homelab.mortenolsen.pro_authentikclients.yaml
 - bases/authentik.homelab.mortenolsen.pro_authentikgroups.yaml
+- bases/authentik.homelab.mortenolsen.pro_authentikproxyproviders.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

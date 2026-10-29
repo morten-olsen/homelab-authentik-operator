@@ -1,0 +1,13 @@
+apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
+kind: AuthentikProxyProvider
+metadata:
+  name: whoami
+spec:
+  serverRef:
+    name: authentik
+    namespace: shared
+  name: whoami
+  externalHost: https://whoami.example.com
+  allowedGroups:
+    - name: admin
+      namespace: shared
