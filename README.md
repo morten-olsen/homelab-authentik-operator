@@ -211,3 +211,8 @@ remain bounded. Fixtures also check the public HTTPS URL and startup probe,
 and delete clients and servers before undeploying the controller so their
 finalizers can finish. Namespace cleanup has a bounded wait. Runtime credentials
 and data are not used by these isolated tests.
+
+## Release ownership
+
+See [Operator releases](docs/releases.md) for approved Forgejo tags, publication
+checks, version immutability and recovery. Main merges validate without publishing.
