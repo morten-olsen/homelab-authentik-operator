@@ -249,3 +249,6 @@ it does not publish or change release mechanics.
 
 See [Operator releases](docs/releases.md) for approved Forgejo tags, publication
 checks, version immutability and recovery. Main merges validate without publishing.
+
+The PR runner obtains Python 3.13.16 through mise for the release-safety regression
+suite; it does not assume python3 is installed in the ci/mise base image.
