@@ -39,6 +39,32 @@ spec:
           spec:
             description: spec defines the desired state of AuthentikClient
             properties:
+              allowedGroups:
+                description: |-
+                  allowedGroups grants access when any listed AuthentikGroup matches.
+                  Explicitly empty denies access. Omission preserves only an existing legacy
+                  client's access during staged migration; once managed, omission denies too.
+                items:
+                  description: NamespacedName represents a namespaced name reference
+                  properties:
+                    name:
+                      description: name is the name of the resource
+                      minLength: 1
+                      type: string
+                    namespace:
+                      description: namespace is the namespace of the resource
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  type: object
+                maxItems: 64
+                type: array
+                x-kubernetes-list-map-keys:
+                - namespace
+                - name
+                x-kubernetes-list-type: map
               authentikUrl:
                 description: |-
                   authentikUrl is the base URL for the Authentik server API and OIDC endpoints.
@@ -67,6 +93,7 @@ spec:
                 type: array
               name:
                 description: name is the display name for the OAuth2 client in Authentik
+                minLength: 1
                 type: string
               redirectUris:
                 description: redirectUris are the allowed redirect URIs for the client
@@ -74,6 +101,14 @@ spec:
                   type: string
                 minItems: 1
                 type: array
+              replacesBindings:
+                description: |-
+                  replacesBindings explicitly approves removal of inventoried pre-migration
+                  application bindings. No unrelated application or group is modified.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
               scopes:
                 default:
                 - openid
@@ -94,14 +129,19 @@ spec:
                 properties:
                   name:
                     description: name is the name of the resource
+                    minLength: 1
                     type: string
                   namespace:
                     description: namespace is the namespace of the resource
+                    minLength: 1
                     type: string
                 required:
                 - name
                 - namespace
                 type: object
+                x-kubernetes-validations:
+                - message: serverRef is immutable
+                  rule: self == oldSelf
               signingKeyName:
                 description: |-
                   signingKeyName is the Authentik certificate/keypair name used to sign tokens.
@@ -131,6 +171,11 @@ spec:
           status:
             description: status defines the observed state of AuthentikClient
             properties:
+              accessManaged:
+                description: |-
+                  accessManaged records the sticky opt-in to GitOps access reconciliation.
+                  Once true, removing allowedGroups cannot restore legacy allow-all behavior.
+                type: boolean
               applicationId:
                 description: applicationID is the Authentik application slug
                 type: string

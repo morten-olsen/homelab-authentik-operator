@@ -1,2 +1,4 @@
 [tools]
-go = "latest"
+go = "1.25.3"
+helm = "3.19.0"
+task = "3.52.0"

@@ -211,3 +211,37 @@ remain bounded. Fixtures also check the public HTTPS URL and startup probe,
 and delete clients and servers before undeploying the controller so their
 finalizers can finish. Namespace cleanup has a bounded wait. Runtime credentials
 and data are not used by these isolated tests.
+
+## GitOps groups and access
+
+Operator 0.2.0 adds `AuthentikGroup` and `AuthentikClient.allowedGroups`. See
+[ownership and cutover rules](docs/adr/0001-gitops-groups-and-access.md) before
+upgrading. User provisioning is outside this feature.
+
+```yaml
+apiVersion: authentik.homelab.mortenolsen.pro/v1alpha1
+kind: AuthentikGroup
+metadata:
+  name: app-access
+  namespace: prod
+spec:
+  serverRef: {name: authentik, namespace: shared}
+  members:
+    - id: 123
+      uuid: 11111111-2222-4333-8444-555555555555
+```
+
+Reference it from a client with
+`allowedGroups: [{name: app-access, namespace: prod}]`. An empty list denies
+access. Once a client has opted in, removing the list also denies access.
+The group owns its complete direct membership; UI edits are drift. Backing groups
+never grant Authentik superuser or role privileges, and the operator has no
+special `admin` behavior. Inspect user IDs/UUIDs through the authenticated
+Authentik API without logging credentials; never identify members by display name.
+
+Local and Woodpecker PR validation uses `mise install && task ci:quality`
+(build, `make test` including envtest, generated CRD/RBAC drift and Helm rendering).
+The service-image delivery shape and existing GitHub mirror release workflow are
+preserved: merging main publishes the reviewed chart version and requires release
+approval. The new quality workflow uses the existing ci/mise image and no secrets;
+it does not publish or change release mechanics.
