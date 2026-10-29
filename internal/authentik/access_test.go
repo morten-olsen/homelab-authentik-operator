@@ -336,3 +336,80 @@ func TestIdentityChecksAndErrorRedaction(t *testing.T) {
 		})
 	}
 }
+
+func TestGroupDeletionRevokesAndRetainsIdentity(t *testing.T) {
+	for _, owner := range []string{"", "group-uid", "foreign-uid"} {
+		t.Run("owner="+owner, func(t *testing.T) {
+			writes := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "GET" {
+					groups := []ManagedGroup{}
+					if owner != "" {
+						groups = append(groups, ManagedGroup{PK: "g1", Name: "gitops/prod/example", Users: []int32{7}, Attributes: map[string]any{groupOwnerKey: owner}})
+					}
+					json.NewEncoder(w).Encode(map[string]any{"results": groups, "pagination": map[string]int{"next": 0}})
+					return
+				}
+				writes++
+				if r.Method != "PUT" || r.URL.Path != "/api/v3/core/groups/g1/" {
+					t.Errorf("identity was created or deleted: %s %s", r.Method, r.URL.Path)
+				}
+				var group ManagedGroup
+				json.NewDecoder(r.Body).Decode(&group)
+				if len(group.Users) != 0 || group.IsSuperuser || len(group.Roles) > 0 || len(group.Parents) > 0 {
+					t.Errorf("not revoked: %+v", group)
+				}
+				json.NewEncoder(w).Encode(group)
+			}))
+			defer srv.Close()
+			err := NewClient(srv.URL, "private", false, "").RevokeGroup(context.Background(), GroupIdentity{Name: "gitops/prod/example", Owner: "group-uid"})
+			if (err != nil) != (owner == "foreign-uid") {
+				t.Fatalf("error=%v", err)
+			}
+			expected := 0
+			if owner == "group-uid" {
+				expected = 1
+			}
+			if writes != expected {
+				t.Fatalf("writes=%d expected=%d", writes, expected)
+			}
+		})
+	}
+}
+
+func TestManagedGroupRejectsPrivilegeAndHierarchyDrift(t *testing.T) {
+	for _, kind := range []string{"superuser", "role", "parent", "child", "membership", "owner"} {
+		t.Run(kind, func(t *testing.T) {
+			group := ManagedGroup{PK: "g1", Name: "gitops/prod/example", Users: []int32{7}, Attributes: map[string]any{groupOwnerKey: "group-uid"}}
+			groups := []ManagedGroup{}
+			switch kind {
+			case "superuser":
+				group.IsSuperuser = true
+			case "role":
+				group.Roles = []string{"privileged"}
+			case "parent":
+				group.Parents = []string{"parent"}
+			case "child":
+				groups = append(groups, ManagedGroup{PK: "unmanaged-child", Parents: []string{"g1"}})
+			case "membership":
+				group.Users = []int32{99}
+			case "owner":
+				group.Attributes[groupOwnerKey] = "foreign"
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" {
+					t.Fatal("validation mutated identity")
+				}
+				if strings.HasSuffix(r.URL.Path, "/g1/") {
+					json.NewEncoder(w).Encode(group)
+				} else {
+					json.NewEncoder(w).Encode(map[string]any{"results": groups, "pagination": map[string]int{"next": 0}})
+				}
+			}))
+			defer srv.Close()
+			if err := NewClient(srv.URL, "private", false, "").ValidateGroup(context.Background(), GroupIdentity{ID: "g1", Name: group.Name, Owner: "group-uid", Users: []int32{7}}); err == nil {
+				t.Fatal("unsafe group accepted")
+			}
+		})
+	}
+}
