@@ -252,3 +252,9 @@ checks, version immutability and recovery. Main merges validate without publishi
 
 The PR runner obtains Python 3.13.16 through mise for the release-safety regression
 suite; it does not assume python3 is installed in the ci/mise base image.
+
+The isolated Kind fixture provisions an empty managed group before its client and
+revokes that group before deleting the server. The PR quality task compiles this
+fixture; full Kind execution uses the existing mirrored E2E Tests workflow.
+Docker and Kind are not present in the Mission Control task container, so a local
+compile is not reported as a full isolated runtime acceptance run.

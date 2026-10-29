@@ -10,6 +10,7 @@ tasks:
       - python3 -m unittest discover -s scripts -p test_release_check.py
       - make test
       - go build -o bin/manager ./cmd
+      - go test -tags=e2e ./test/e2e -run '^$'
       - helm lint charts/authentik-operator
       - helm template authentik charts/authentik-operator --namespace authentik --include-crds --skip-tests > bin/rendered.yaml
       - git diff --exit-code -- api/v1alpha1/zz_generated.deepcopy.go config/crd/bases config/rbac/role.yaml
