@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -203,16 +202,15 @@ func (c *Client) CreateOAuth2Provider(ctx context.Context, name, authFlowUUID, i
 
 	provider, resp, err := c.api.ProvidersAPI.ProvidersOauth2Create(ctx).OAuth2ProviderRequest(*req).Execute()
 	if err != nil {
-		// Try to extract response body if available
-		var errorMsg string
-		if resp != nil && resp.Body != nil {
-			if body, readErr := io.ReadAll(resp.Body); readErr == nil {
-				errorMsg = fmt.Sprintf(" (response body: %s)", string(body))
+		// SDK errors may embed response bodies containing provider credentials.
+		// Expose only operation and status metadata to logs and CR conditions.
+		if resp != nil {
+			if resp.Body != nil {
+				_ = resp.Body.Close()
 			}
-			_ = resp.Body.Close()
+			return nil, fmt.Errorf("failed to create OAuth2 provider: HTTP %d", resp.StatusCode)
 		}
-		// Include the original error which may already contain response details
-		return nil, fmt.Errorf("failed to create OAuth2 provider: %w%s", err, errorMsg)
+		return nil, fmt.Errorf("failed to create OAuth2 provider: request failed")
 	}
 
 	return provider, nil
