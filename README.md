@@ -242,6 +242,10 @@ Authentik API without logging credentials; never identify members by display nam
 Local and Woodpecker PR validation uses `mise install && task ci:quality`
 (build, `make test` including envtest, generated CRD/RBAC drift and Helm rendering).
 The service-image delivery shape and existing GitHub mirror release workflow are
-preserved: merging main publishes the reviewed chart version and requires release
-approval. The new quality workflow uses the existing ci/mise image and no secrets;
+preserved: merging main validates without publishing. An explicitly approved
+Forgejo version tag publishes the reviewed chart/image version. The new quality workflow uses the existing ci/mise image and no secrets;
 it does not publish or change release mechanics.
+## Release ownership
+
+See [Operator releases](docs/releases.md) for approved Forgejo tags, publication
+checks, version immutability and recovery. Main merges validate without publishing.

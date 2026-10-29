@@ -84,8 +84,9 @@ semantics; disconnection is an additional recovery measure on failure.
 
 ## Delivery and rollback
 
-Merge is gated by security review, green CI and explicit release approval:
-main's existing mirrored workflow publishes a tag, image, release and Helm chart.
+Merge is gated by security review and green CI. Publication separately requires
+explicit release approval: the approved Forgejo tag is mirrored to publish the
+image, release and Helm chart; main merges validate without publishing.
 CRDs/operator precede semantic groups; establish the administrator group before
 cutting over one application at a time. Application rollout needs its own agreed
 staging decision. The task records the inventory and live authorization evidence.
