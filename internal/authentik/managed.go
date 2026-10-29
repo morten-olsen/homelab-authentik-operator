@@ -152,17 +152,14 @@ func (c *Client) ReconcileGroup(ctx context.Context, identity GroupIdentity, ref
 	if err != nil {
 		return nil, err
 	}
-	var existing *ManagedGroup
-	for i := range groups {
-		if groups[i].Name == identity.Name {
-			if existing != nil {
-				return nil, fmt.Errorf("ambiguous group name")
-			}
-			existing = &groups[i]
-		}
+	existing, err := resolveOwnedGroup(groups, identity)
+	if err != nil {
+		return nil, err
 	}
-	if existing != nil && existing.Attributes[groupOwnerKey] != identity.Owner {
-		return nil, fmt.Errorf("group exists without this resource's ownership marker; refusing adoption")
+	for _, group := range groups {
+		if group.Name == identity.Name && (existing == nil || group.PK != existing.PK) {
+			return nil, fmt.Errorf("group name occupied by another identity; refusing adoption")
+		}
 	}
 	ids, memberErr := c.ResolveMembers(ctx, refs)
 	if memberErr != nil {
@@ -199,7 +196,7 @@ func (c *Client) ReconcileGroup(ctx context.Context, identity GroupIdentity, ref
 	if memberErr != nil {
 		return &group, memberErr
 	}
-	if group.PK == "" || !groupMatches(group, desired) {
+	if group.PK == "" || (existing != nil && group.PK != existing.PK) || !groupMatches(group, desired) {
 		return nil, fmt.Errorf("authentik did not persist exact group fields")
 	}
 	return &group, nil
@@ -241,21 +238,53 @@ func (c *Client) RevokeGroup(ctx context.Context, id GroupIdentity) error {
 	if err != nil {
 		return err
 	}
-	var found *ManagedGroup
-	for i := range groups {
-		if groups[i].Name == id.Name {
-			if found != nil {
-				return fmt.Errorf("ambiguous group name")
-			}
-			found = &groups[i]
-		}
+	found, err := resolveOwnedGroup(groups, id)
+	if err != nil {
+		return err
 	}
 	if found == nil {
 		return nil
 	}
-	if found.Attributes[groupOwnerKey] != id.Owner {
-		return fmt.Errorf("refusing to revoke a foreign group")
+	// Preserve a remotely changed name during deletion: another identity may now
+	// occupy the desired name. Only the retained owned identity is revoked.
+	desired := ManagedGroup{Name: found.Name, Users: []int32{}, Parents: []string{}, Roles: []string{}, Attributes: map[string]any{groupOwnerKey: id.Owner}}
+	path := "core/groups/" + url.PathEscape(found.PK) + "/"
+	if err := c.managedRequest(ctx, http.MethodPut, path, desired, nil); err != nil {
+		return err
 	}
-	desired := ManagedGroup{Name: id.Name, Users: []int32{}, Parents: []string{}, Roles: []string{}, Attributes: map[string]any{groupOwnerKey: id.Owner}}
-	return c.managedRequest(ctx, http.MethodPut, "core/groups/"+url.PathEscape(found.PK)+"/", desired, nil)
+	var persisted ManagedGroup
+	if err := c.managedRequest(ctx, http.MethodGet, path, nil, &persisted); err != nil {
+		return err
+	}
+	if persisted.PK != found.PK || !groupMatches(persisted, desired) {
+		return fmt.Errorf("authentik did not persist group revocation; retaining finalizer")
+	}
+	return nil
+}
+
+// resolveOwnedGroup uses the remote primary key and resource UID, never the
+// mutable display name. A unique UID recovers status lost before it was saved.
+// Ambiguous ownership or a foreign persisted PK must never create a new group.
+func resolveOwnedGroup(groups []ManagedGroup, id GroupIdentity) (*ManagedGroup, error) {
+	if id.Owner == "" {
+		return nil, fmt.Errorf("group owner is required")
+	}
+	var owned *ManagedGroup
+	for i := range groups {
+		group := &groups[i]
+		if id.ID != "" && group.PK == id.ID && group.Attributes[groupOwnerKey] != id.Owner {
+			return nil, fmt.Errorf("persisted group identity has foreign ownership")
+		}
+		if group.Attributes[groupOwnerKey] != id.Owner {
+			continue
+		}
+		if owned != nil {
+			return nil, fmt.Errorf("ambiguous group ownership; refusing mutation")
+		}
+		owned = group
+	}
+	if owned != nil && id.ID != "" && owned.PK != id.ID {
+		return nil, fmt.Errorf("owned group differs from persisted identity")
+	}
+	return owned, nil
 }

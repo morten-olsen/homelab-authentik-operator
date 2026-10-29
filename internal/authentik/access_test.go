@@ -312,8 +312,13 @@ func TestGroupDeletionRevokesAndRetainsIdentity(t *testing.T) {
 	for _, owner := range []string{"", "group-uid", "foreign-uid"} {
 		t.Run("owner="+owner, func(t *testing.T) {
 			writes := 0
+			var persisted *ManagedGroup
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet {
+					if persisted != nil && r.URL.Path == "/api/v3/core/groups/g1/" {
+						checkTestError(t, json.NewEncoder(w).Encode(persisted))
+						return
+					}
 					groups := []ManagedGroup{}
 					if owner != "" {
 						groups = append(groups, ManagedGroup{PK: "g1", Name: "gitops/prod/example", Users: []int32{7}, Attributes: map[string]any{groupOwnerKey: owner}})
@@ -330,10 +335,12 @@ func TestGroupDeletionRevokesAndRetainsIdentity(t *testing.T) {
 				if len(group.Users) != 0 || group.IsSuperuser || len(group.Roles) > 0 || len(group.Parents) > 0 {
 					t.Errorf("not revoked: %+v", group)
 				}
+				group.PK = "g1"
+				persisted = &group
 				checkTestError(t, json.NewEncoder(w).Encode(group))
 			}))
 			defer srv.Close()
-			err := NewClient(srv.URL, "private", false, "").RevokeGroup(context.Background(), GroupIdentity{Name: "gitops/prod/example", Owner: "group-uid"})
+			err := NewClient(srv.URL, "private", false, "").RevokeGroup(context.Background(), GroupIdentity{ID: "g1", Name: "gitops/prod/example", Owner: "group-uid"})
 			if (err != nil) != (owner == "foreign-uid") {
 				t.Fatalf("error=%v", err)
 			}

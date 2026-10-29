@@ -234,7 +234,11 @@ spec:
 Reference it from a client with
 `allowedGroups: [{name: app-access, namespace: prod}]`. An empty list denies
 access. Once a client has opted in, removing the list also denies access.
-The group owns its complete direct membership; UI edits are drift. Backing groups
+The group owns its complete direct membership; UI edits are drift. Remote renames
+are repaired using the stable group ID and ownership UID, including recovery
+when status is lost. Ambiguous ownership blocks writes. Deletion revokes and reads
+back managed fields before releasing its finalizer, retaining the remote identity.
+Backing groups
 never grant Authentik superuser or role privileges, and the operator has no
 special `admin` behavior. Inspect user IDs/UUIDs through the authenticated
 Authentik API without logging credentials; never identify members by display name.

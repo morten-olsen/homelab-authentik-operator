@@ -10,6 +10,12 @@ Its immutable serverRef selects one AuthentikServer. Its backing group is named
 resource UID. An existing same-name group without that exact UID is a conflict,
 including after deleting and recreating a Kubernetes resource. No adoption or
 identity deletion is performed. Backing names must fit Authentik's 150 characters.
+The persisted remote primary key and resource UID identify the group, even after
+a UI rename. If status was lost, exactly one matching owner UID recovers that
+identity. Duplicate owner UIDs, a foreign persisted primary key, or an owned
+primary key conflicting with status stop reconciliation before any mutation.
+Renames are repaired on that same identity; a conflicting desired name is never
+adopted and never causes a replacement identity to be created.
 
 Only this resource owns its complete membership list. Members reference existing
 human users by ID and UUID; renames remain valid, deleted/recreated identities do
@@ -20,8 +26,11 @@ attribute. Undeclared child groups cause NotReady and application closure; the
 operator never edits an unmanaged child to fix inheritance.
 
 Deleting a managed group first clears its direct membership and privilege fields,
-then removes its Kubernetes finalizer, retaining the Authentik identity and UID
-claim. References to a deleted/not-ready group close applications. Missing remote
+then reads back those fields before removing its Kubernetes finalizer, retaining
+the Authentik identity and UID claim. Deletion follows the same primary-key/UID recovery, preserves a remotely
+changed name, and leaves unrelated groups untouched even if they now occupy the
+desired name. Ambiguity or failed read-back retains the finalizer for retry.
+References to a deleted/not-ready group close applications. Missing remote
 groups need no deletion action. Orphaned retained groups and policies need an
 explicit later cleanup decision; recreation by name cannot silently adopt them.
 
