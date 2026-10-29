@@ -20,11 +20,21 @@ keeps the historical `Managed by AuthentikClient <uid>` claim text; the UID is
 the claim, and it is unique across kinds. Group enforcement happens in
 Authentik's authorization flow. The reverse proxy never inspects claims.
 
-The provider is named `<namespace>-<name>`. Its persisted ID is used first. A
-provider found only by name is adopted solely when it is unassigned or already
-assigned to this resource's application slug; a provider assigned elsewhere is a
-conflict and is never modified. The operator owns the provider's name, flows,
-external host, mode and access token validity; drift is patched and read back.
+The provider is named `<namespace>-<name>`. The operator only ever modifies or
+deletes the provider it created, identified by its ID in status or, if status
+was lost, in the `authentik.homelab.mortenolsen.pro/provider-id` annotation,
+which is written before the provider is attached anywhere. A provider that only
+matches by name is never adopted: reconciliation stops with a conflict, as
+does a recorded provider now assigned to another application. The operator
+owns the provider's name, flows, external host, mode and access token
+validity; drift is patched and read back.
+
+The outpost selects a provider by host, so one external host belongs to one
+resource per server. The oldest resource claiming a host keeps it; newer ones
+report `HostConflict` and create nothing. Charts should name these resources
+distinctly from their AuthentikClient (homelab-common uses
+`<release>-forward-auth`), because both kinds derive the application slug from
+namespace and name, and a shared slug stalls both on the ownership check.
 
 The embedded outpost is shared. The operator adds or removes only the provider
 IDs it owns in the outpost's `providers` list, carries every other entry and

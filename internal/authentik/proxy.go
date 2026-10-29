@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 )
 
 const embeddedOutpostManaged = "goauthentik.io/outposts/embedded"
@@ -43,9 +44,9 @@ func proxyMatches(a, b ProxyProvider) bool {
 		a.ExternalHost == b.ExternalHost && a.Mode == b.Mode && a.AccessTokenValidity == b.AccessTokenValidity
 }
 
-// ReconcileProxyProvider creates or repairs the proxy provider. A provider found
-// only by name is adopted solely when it is unassigned or already assigned to
-// this resource's application; anything else is a conflict, never taken over.
+// ReconcileProxyProvider creates or repairs the proxy provider. Only a provider
+// this resource created (its persisted ID) is ever modified; a provider that
+// merely has the desired name is a conflict and is never adopted.
 func (c *Client) ReconcileProxyProvider(ctx context.Context, plan ProxyPlan) (*ProxyProvider, error) {
 	desired := plan.Desired
 	var current *ProxyProvider
@@ -56,6 +57,9 @@ func (c *Client) ReconcileProxyProvider(ctx context.Context, plan ProxyPlan) (*P
 			return nil, err
 		}
 		if err == nil {
+			if p.AssignedApplicationSlug != "" && p.AssignedApplicationSlug != plan.AppSlug {
+				return nil, fmt.Errorf("recorded proxy provider is assigned to another application; refusing to modify it")
+			}
 			current = &p
 		}
 	}
@@ -64,17 +68,10 @@ func (c *Client) ReconcileProxyProvider(ctx context.Context, plan ProxyPlan) (*P
 		if err != nil {
 			return nil, err
 		}
-		for i := range found {
-			if found[i].Name != desired.Name {
-				continue
+		for _, p := range found {
+			if strings.EqualFold(p.Name, desired.Name) {
+				return nil, fmt.Errorf("a proxy provider named %s already exists and is not recorded as owned; refusing adoption", desired.Name)
 			}
-			if current != nil {
-				return nil, fmt.Errorf("ambiguous proxy provider name")
-			}
-			current = &found[i]
-		}
-		if current != nil && current.AssignedApplicationSlug != "" && current.AssignedApplicationSlug != plan.AppSlug {
-			return nil, fmt.Errorf("proxy provider name is used by another application; refusing adoption")
 		}
 	}
 	var result ProxyProvider

@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -22,6 +24,10 @@ import (
 )
 
 const authentikProxyProviderFinalizer = "authentik.homelab.mortenolsen.pro/proxy-provider-finalizer"
+
+// providerIDAnnotation records the created provider's ID on the object itself,
+// so a lost status still identifies the one provider this resource may modify.
+const providerIDAnnotation = "authentik.homelab.mortenolsen.pro/provider-id"
 
 // AuthentikProxyProviderReconciler reconciles a forward-auth proxy provider, its
 // application access and its attachment to the server's embedded outpost.
@@ -89,6 +95,38 @@ func defaultAPIClient(server *authv1.AuthentikServer, token string) *authentik.C
 	return authentik.NewClient(fmt.Sprintf("http://%s.%s.svc.cluster.local:9000", server.Name, server.Namespace), token, true, "")
 }
 
+// knownProviderID prefers status and falls back to the annotation.
+func knownProviderID(p *authv1.AuthentikProxyProvider) int32 {
+	if p.Status.ProviderID > 0 {
+		return int32(p.Status.ProviderID)
+	}
+	id, err := strconv.ParseInt(p.Annotations[providerIDAnnotation], 10, 32)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return int32(id)
+}
+
+// hostConflict reports an older resource on the same server claiming the same
+// external host; the outpost selects providers by host, so only one may own it.
+func (r *AuthentikProxyProviderReconciler) hostConflict(ctx context.Context, p *authv1.AuthentikProxyProvider) (string, error) {
+	var list authv1.AuthentikProxyProviderList
+	if err := r.List(ctx, &list); err != nil {
+		return "", err
+	}
+	for _, other := range list.Items {
+		if other.UID == p.UID || other.Spec.ServerRef != p.Spec.ServerRef || !strings.EqualFold(other.Spec.ExternalHost, p.Spec.ExternalHost) {
+			continue
+		}
+		older := other.CreationTimestamp.Before(&p.CreationTimestamp) ||
+			(other.CreationTimestamp.Equal(&p.CreationTimestamp) && other.Namespace+"/"+other.Name < p.Namespace+"/"+p.Name)
+		if older {
+			return other.Namespace + "/" + other.Name, nil
+		}
+	}
+	return "", nil
+}
+
 func proxySlug(p *authv1.AuthentikProxyProvider) string {
 	return slugify(fmt.Sprintf("%s-%s", p.Namespace, p.Name))
 }
@@ -108,7 +146,14 @@ func (r *AuthentikProxyProviderReconciler) reconcileNormal(ctx context.Context, 
 		return ctrl.Result{RequeueAfter: accessResync}, err
 	}
 
-	plan := authentik.AccessPlan{Slug: slug, Name: p.Spec.Name, Owner: string(p.UID), ProviderID: int32(p.Status.ProviderID), ClaimExisting: p.Status.ApplicationID == slug && p.Status.ProviderID > 0}
+	if owner, err := r.hostConflict(ctx, p); err != nil {
+		return ctrl.Result{}, err
+	} else if owner != "" {
+		return fail("ProviderReady", "HostConflict", fmt.Errorf("externalHost is already claimed by %s", owner))
+	}
+
+	knownID := knownProviderID(p)
+	plan := authentik.AccessPlan{Slug: slug, Name: p.Spec.Name, Owner: string(p.UID), ProviderID: knownID, ClaimExisting: p.Status.ApplicationID == slug && knownID > 0}
 	plan.Groups, plan.ResolutionError = resolveAllowedGroups(ctx, r.Client, apiClient, p.Spec.ServerRef, p.Spec.AllowedGroups)
 	if _, err := apiClient.ReconcileAccess(ctx, plan); err != nil {
 		return fail("AccessReady", "ReconcileFailed", err)
@@ -141,11 +186,24 @@ func (r *AuthentikProxyProviderReconciler) reconcileNormal(ctx context.Context, 
 			Mode:                mode,
 			AccessTokenValidity: validity,
 		},
-		KnownID: int32(p.Status.ProviderID),
+		KnownID: knownID,
 		AppSlug: slug,
 	})
 	if err != nil {
 		return fail("ProviderReady", "ReconcileFailed", err)
+	}
+	if want := strconv.Itoa(int(provider.PK)); p.Annotations[providerIDAnnotation] != want {
+		// Record ownership on the object before attaching the provider anywhere.
+		// Update returns the stored object, so status edits come after it.
+		if p.Annotations == nil {
+			p.Annotations = map[string]string{}
+		}
+		p.Annotations[providerIDAnnotation] = want
+		if err := r.Update(ctx, p); err != nil {
+			return ctrl.Result{}, err
+		}
+		p.Status.ApplicationID = slug
+		r.setCondition(p, "AccessReady", metav1.ConditionTrue, "Reconciled", "Exact allowed groups and ANY bindings verified")
 	}
 	r.setCondition(p, "ProviderReady", metav1.ConditionTrue, "Reconciled", "Proxy provider is ready")
 	if p.Status.ProviderID != int(provider.PK) {
@@ -204,7 +262,7 @@ func (r *AuthentikProxyProviderReconciler) handleDeletion(ctx context.Context, p
 }
 
 func (r *AuthentikProxyProviderReconciler) cleanup(ctx context.Context, p *authv1.AuthentikProxyProvider, apiClient *authentik.Client) error {
-	id := int32(p.Status.ProviderID)
+	id := knownProviderID(p)
 	if id > 0 {
 		if err := apiClient.DetachFromEmbeddedOutpost(ctx, id); err != nil {
 			return err

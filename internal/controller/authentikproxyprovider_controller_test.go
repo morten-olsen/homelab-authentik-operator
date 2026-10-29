@@ -90,3 +90,26 @@ func TestProxyProviderAccessFailureNeverAttaches(t *testing.T) {
 		})
 	}
 }
+
+func TestProxyProviderHostConflictAndRecordedID(t *testing.T) {
+	scheme := runtime.NewScheme()
+	checkTestError(t, authv1.AddToScheme(scheme))
+	ref := authv1.NamespacedName{Name: "authentik", Namespace: "shared"}
+	older := &authv1.AuthentikProxyProvider{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "prod", UID: "a", CreationTimestamp: metav1.Unix(100, 0)}, Spec: authv1.AuthentikProxyProviderSpec{ServerRef: ref, ExternalHost: "https://app.example.com"}}
+	newer := &authv1.AuthentikProxyProvider{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "other", UID: "b", CreationTimestamp: metav1.Unix(200, 0), Annotations: map[string]string{providerIDAnnotation: "42"}}, Spec: authv1.AuthentikProxyProviderSpec{ServerRef: ref, ExternalHost: "https://APP.example.com"}}
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(older, newer).Build()
+	r := &AuthentikProxyProviderReconciler{Client: kube, Scheme: scheme}
+	if owner, err := r.hostConflict(context.Background(), newer); err != nil || owner != "prod/a" {
+		t.Fatalf("newer claim not refused: owner=%q err=%v", owner, err)
+	}
+	if owner, err := r.hostConflict(context.Background(), older); err != nil || owner != "" {
+		t.Fatalf("older owner refused: owner=%q err=%v", owner, err)
+	}
+	if knownProviderID(newer) != 42 {
+		t.Fatal("recorded provider ID not recovered from the annotation")
+	}
+	newer.Status.ProviderID = 7
+	if knownProviderID(newer) != 7 {
+		t.Fatal("status provider ID not preferred")
+	}
+}

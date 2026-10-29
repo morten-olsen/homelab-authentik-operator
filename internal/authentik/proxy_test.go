@@ -26,19 +26,20 @@ func TestProxyProviderOwnership(t *testing.T) {
 		{name: "create", wantWrite: http.MethodPost},
 		{name: "unchanged", existing: func() *ProxyProvider { p := desiredProxy(); p.PK = 5; return &p }(), knownID: 5},
 		{name: "drift repaired", existing: func() *ProxyProvider { p := desiredProxy(); p.PK = 5; p.ExternalHost = "https://other"; return &p }(), knownID: 5, wantWrite: http.MethodPatch},
-		{name: "unassigned adopted by name", existing: func() *ProxyProvider { p := desiredProxy(); p.PK = 5; return &p }()},
-		{name: "own application adopted by name", existing: func() *ProxyProvider {
+		{name: "unassigned name match refused", existing: func() *ProxyProvider { p := desiredProxy(); p.PK = 5; return &p }(), wantErr: true},
+		{name: "own application name match refused without recorded ID", existing: func() *ProxyProvider {
 			p := desiredProxy()
 			p.PK = 5
 			p.AssignedApplicationSlug = "prod-whoami"
 			return &p
-		}()},
-		{name: "foreign application refused", existing: func() *ProxyProvider {
+		}(), wantErr: true},
+		{name: "recorded ID assigned elsewhere refused", existing: func() *ProxyProvider {
 			p := desiredProxy()
 			p.PK = 5
 			p.AssignedApplicationSlug = "someone-else"
 			return &p
-		}(), wantErr: true},
+		}(), knownID: 5, wantErr: true},
+		{name: "recorded ID after status loss is reused", existing: func() *ProxyProvider { p := desiredProxy(); p.PK = 5; return &p }(), knownID: 5},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stored := tc.existing
@@ -77,7 +78,7 @@ func TestProxyProviderOwnership(t *testing.T) {
 			}
 			if tc.wantErr {
 				if len(writes) != 0 {
-					t.Fatal("modified a provider owned by another application")
+					t.Fatal("modified a provider this resource does not own")
 				}
 				return
 			}
