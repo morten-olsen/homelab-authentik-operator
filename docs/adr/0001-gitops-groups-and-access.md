@@ -58,7 +58,13 @@ claimed to have revoked access. Earlier errors cannot claim fail-closed state.
 Existing applications are claimed only using the originating client's recorded
 application slug and provider ID, then marked with the client UID in the managed
 application description. New disconnected applications carry that description
-from creation, allowing restart recovery without blind adoption. Only explicitly
+from creation, allowing restart recovery without blind adoption. Provider identity
+is persisted in Kubernetes before provider attachment. If that status is lost
+while an exact UID-owned application remains attached, recovery disconnects it,
+sets ALL and reads back closure before rebuilding access. It never adopts the
+attached provider ID from that application; normal provider reconciliation runs
+only after verified group enforcement. A foreign application or conflicting
+nonzero recorded provider ID is rejected. Only explicitly
 inventoried pre-migration bindings in replacesBindings may be removed. Once
 managed, group-binding edits are drift; unknown policy/user bindings leave the
 application closed for investigation rather than deleting unrelated policy.

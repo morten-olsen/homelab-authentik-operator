@@ -223,11 +223,40 @@ func (c *Client) claimAccessApplication(ctx context.Context, plan AccessPlan) (*
 		if app.PK == "" || app.Slug != plan.Slug || app.Provider != 0 || app.Description != applicationOwner(plan.Owner) {
 			return nil, fmt.Errorf("disconnected application creation verification failed")
 		}
-	} else if (!plan.ClaimExisting && app.Description != applicationOwner(plan.Owner)) || (app.Provider != 0 && app.Provider != plan.ProviderID) {
+	} else if !plan.ClaimExisting && app.Description != applicationOwner(plan.Owner) {
 		return nil, fmt.Errorf("existing application is not claimed by this client and provider; refusing adoption")
+	}
+	if err := c.recoverApplicationProvider(ctx, plan, &app); err != nil {
+		return nil, err
 	}
 	return &app, nil
 }
+
+func (c *Client) recoverApplicationProvider(ctx context.Context, plan AccessPlan, app *AccessApplication) error {
+	if app.Provider == 0 || app.Provider == plan.ProviderID {
+		return nil
+	}
+	if plan.ProviderID != 0 || app.Description != applicationOwner(plan.Owner) {
+		return fmt.Errorf("existing application is not claimed by this client and provider; refusing adoption")
+	}
+	// A lost/conflicted status write must not permanently strand a UID-owned
+	// application. Do not infer ownership of its attached provider: disconnect
+	// and verify closure, then let normal provider reconciliation select it.
+	path := "core/applications/" + url.PathEscape(plan.Slug) + "/"
+	if err := c.managedRequest(ctx, http.MethodPatch, path, map[string]any{"provider": nil, "policy_engine_mode": accessModeAll}, nil); err != nil {
+		return err
+	}
+	var persisted AccessApplication
+	if err := c.managedRequest(ctx, http.MethodGet, path, nil, &persisted); err != nil {
+		return err
+	}
+	if persisted.PK != app.PK || persisted.Slug != plan.Slug || persisted.Description != applicationOwner(plan.Owner) || persisted.Provider != 0 || persisted.Mode != accessModeAll {
+		return fmt.Errorf("owned application closure could not be verified after provider status loss")
+	}
+	*app = persisted
+	return nil
+}
+
 func (c *Client) validateAccessGroups(ctx context.Context, plan AccessPlan) error {
 	resolutionErr := plan.ResolutionError
 	if len(plan.Groups) == 0 && resolutionErr == nil {
