@@ -26,3 +26,6 @@ spec:
   # image: ghcr.io/goauthentik/server:2026.8.5
   # Optional: Number of replicas
   # replicas: 1
+  # Optional: Existing PVC in this namespace, shared by server and worker at /data.
+  # Create and protect the claim separately; the operator never owns or deletes it.
+  # dataVolumeClaimName: authentik-data

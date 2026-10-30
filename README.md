@@ -49,6 +49,29 @@ This startup budget prevents premature liveness restarts; database contention
 must also be fixed in the postgres operator. It does not make a permanent lock
 deadlock safe.
 
+## Persistent local files
+
+Set `spec.dataVolumeClaimName` to the name of an existing PersistentVolumeClaim
+in the `AuthentikServer` namespace to enable persistent local files, including
+background image uploads. Both server and worker mount that same claim read-write
+as volume `data` at `/data`; their existing UID, GID and filesystem group are 1000.
+The claim name must be nonempty when supplied. Omitting the field leaves both
+workloads without a data volume.
+
+```yaml
+spec:
+  host: auth.example.com
+  dataVolumeClaimName: authentik-data
+```
+
+Create and protect the claim separately before configuring it. The operator does
+not create, adopt, resize or delete PVCs, including when this field is removed or
+the `AuthentikServer` is deleted. Back up the stored files independently of the
+PostgreSQL database. The claim must support simultaneous access by server and
+worker: a ReadWriteOnce local-path claim works when both run on the same node;
+multi-node deployments need storage and access modes that support their placement.
+An unavailable or unschedulable claim prevents the affected pods from starting.
+
 ## Getting Started
 
 ### Release version and approval

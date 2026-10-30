@@ -39,6 +39,12 @@ spec:
           spec:
             description: spec defines the desired state of AuthentikServer
             properties:
+              dataVolumeClaimName:
+                description: |-
+                  dataVolumeClaimName is an existing PVC in this resource's namespace mounted at /data
+                  in both server and worker. The operator does not manage the PVC's lifecycle.
+                minLength: 1
+                type: string
               host:
                 description: host is the external hostname for Authentik
                 type: string

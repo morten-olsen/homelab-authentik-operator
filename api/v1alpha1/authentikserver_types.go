@@ -80,6 +80,12 @@ type AuthentikServerSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	Replicas *int32 `json:"replicas,omitempty"`
 
+	// dataVolumeClaimName is an existing PVC in this resource's namespace mounted at /data
+	// in both server and worker. The operator does not manage the PVC's lifecycle.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	DataVolumeClaimName string `json:"dataVolumeClaimName,omitempty"`
+
 	// host is the external hostname for Authentik
 	// +kubebuilder:validation:Required
 	Host string `json:"host"`

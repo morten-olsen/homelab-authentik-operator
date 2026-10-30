@@ -274,6 +274,19 @@ func (r *AuthentikServerReconciler) reconcileAuthentikServerDeployment(ctx conte
 				},
 			},
 		}
+		if server.Spec.DataVolumeClaimName != "" {
+			deployment.Spec.Template.Spec.Volumes = []corev1.Volume{{
+				Name: "data",
+				VolumeSource: corev1.VolumeSource{
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+						ClaimName: server.Spec.DataVolumeClaimName,
+					},
+				},
+			}}
+			deployment.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{
+				Name: "data", MountPath: "/data",
+			}}
+		}
 		return controllerutil.SetControllerReference(server, deployment, r.Scheme)
 	})
 
@@ -334,6 +347,19 @@ func (r *AuthentikServerReconciler) reconcileAuthentikWorkerDeployment(ctx conte
 					},
 				},
 			},
+		}
+		if server.Spec.DataVolumeClaimName != "" {
+			deployment.Spec.Template.Spec.Volumes = []corev1.Volume{{
+				Name: "data",
+				VolumeSource: corev1.VolumeSource{
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+						ClaimName: server.Spec.DataVolumeClaimName,
+					},
+				},
+			}}
+			deployment.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{
+				Name: "data", MountPath: "/data",
+			}}
 		}
 		return controllerutil.SetControllerReference(server, deployment, r.Scheme)
 	})
