@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	api "goauthentik.io/api/v3"
 )
@@ -30,6 +31,21 @@ import (
 type Client struct {
 	api     *api.APIClient
 	baseURL string
+}
+
+// Reconciliations create short-lived API clients, but their idle connections
+// must share a process-wide pool. A fresh transport per client retains its own
+// connections and goroutines even after the API client becomes unreachable.
+// Authentication headers remain on each client's SDK configuration.
+var insecureHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 2,
+		IdleConnTimeout:     30 * time.Second,
+	},
 }
 
 // NewClient creates a new Authentik API client
@@ -52,13 +68,7 @@ func NewClient(baseURL, token string, insecureSkipVerify bool, serviceURL string
 	cfg.AddDefaultHeader("Authorization", fmt.Sprintf("Bearer %s", token))
 
 	if insecureSkipVerify {
-		cfg.HTTPClient = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		}
+		cfg.HTTPClient = insecureHTTPClient
 	}
 
 	return &Client{

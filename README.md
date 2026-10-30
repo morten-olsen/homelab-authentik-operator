@@ -53,20 +53,34 @@ deadlock safe.
 
 ### Release version and approval
 
-The mirror's main workflow publishes the version in
-`charts/authentik-operator/Chart.yaml` as its `v` tag, image tag and chart version.
-Bump `version` and `appVersion` together before a release-triggering merge. The
-workflow refuses an existing tag; it must never overwrite an existing release.
-This avoids inferring `0.1.0` from stale `v0.0.15` tag history when `0.1.0`
-artifacts already exist. Redis removal is prepared as `0.1.4`, following
-the published default-image release `0.1.3`.
-Renovate source PRs still require review and a matching chart `version` and
-`appVersion` bump before the release-triggering merge.
+Main and branch pushes validate without publishing. An approved version tag
+pushed to Forgejo is mirrored outward and triggers image, release-asset and Helm
+publication. Publishers stamp the chart version and appVersion from that tag;
+they refuse reused versions. Follow [Operator releases](docs/releases.md) for
+the read-only preflight and approval of the exact version, commit and effects.
+Publication alone does not update the homelab: once the artifacts exist, change
+core's pinned operator version and verify the live objects and original symptom.
 
-Morten must approve the repository, version, commit and publishing/deployment
-effects before merging to main. Publication alone does not update the homelab:
-once the artifacts exist, change core's pinned operator version and verify the
-operator image and the generated server startup probe in the cluster.
+### API-client connection lifetime
+
+Controllers construct API clients on each reconciliation. Clients keep their
+own URL and authorization headers while sharing the HTTP connection pool for
+their TLS mode. The explicit skip-verification mode uses a process-wide pool
+with at most ten idle connections in total, two per host and a 30-second idle
+timeout. Verifying clients continue using the standard HTTP client. Creating a
+fresh transport per reconciliation leaks idle connections and their goroutines,
+including when the URL uses internal HTTP; garbage collection alone does not
+close them. HOMEIT-490 reproduced 100 retained connections after 100 clients.
+
+Run the connection-reuse, credential-isolation and TLS-isolation regressions with:
+
+```sh
+go test ./internal/authentik -run 'TestFreshClientsReuseConnections|TestClientTLSModesRemainIsolated'
+```
+
+After deployment, measure memory across startup with the full client/group/proxy
+backlog and repeated reconciliation. The homelab's 256Mi operator limit is an
+OOM mitigation, not proof of a bounded live working set or final resource sizing.
 
 ### Prerequisites
 - go version v1.24.6+
