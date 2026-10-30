@@ -63,30 +63,6 @@ func TestReconcileDataVolume(t *testing.T) {
 				Client: fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(server).WithObjects(objects...).Build(),
 				Scheme: scheme,
 			}
-			assertClaimsUnchanged := func() {
-				t.Helper()
-				claims := &corev1.PersistentVolumeClaimList{}
-				if err := r.List(ctx, claims, client.InNamespace(server.Namespace)); err != nil {
-					t.Fatal(err)
-				}
-				if existingClaim == nil {
-					if len(claims.Items) != 0 {
-						t.Fatalf("omitted dataVolumeClaimName created claims: %v", claims.Items)
-					}
-					return
-				}
-				if len(claims.Items) != 1 {
-					t.Fatalf("expected only existing claim, got %d", len(claims.Items))
-				}
-				claim := &claims.Items[0]
-				if claim.UID != existingClaim.UID || claim.Name != existingClaim.Name ||
-					!reflect.DeepEqual(claim.Spec, existingClaim.Spec) ||
-					!reflect.DeepEqual(claim.Labels, existingClaim.Labels) ||
-					!reflect.DeepEqual(claim.Annotations, existingClaim.Annotations) ||
-					len(claim.OwnerReferences) != 0 || claim.DeletionTimestamp != nil {
-					t.Fatalf("existing claim was replaced, adopted or modified: %+v", claim)
-				}
-			}
 			request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)}
 			for pass := range 2 {
 				if _, err := r.Reconcile(ctx, request); err != nil {
@@ -98,26 +74,8 @@ func TestReconcileDataVolume(t *testing.T) {
 						t.Fatal(err)
 					}
 					pod := &deployment.Spec.Template.Spec
-					if len(pod.Containers) != 1 {
-						t.Fatalf("%s: expected one container", component)
-					}
-					mounts := pod.Containers[0].VolumeMounts
-					if claimName == "" {
-						if len(pod.Volumes) != 0 || len(mounts) != 0 {
-							t.Fatalf("%s: omitted claim must not add storage", component)
-						}
-						continue
-					}
-					if len(pod.Volumes) != 1 || pod.Volumes[0].Name != "data" ||
-						pod.Volumes[0].PersistentVolumeClaim == nil ||
-						pod.Volumes[0].PersistentVolumeClaim.ClaimName != claimName ||
-						pod.Volumes[0].PersistentVolumeClaim.ReadOnly {
-						t.Fatalf("%s: expected existing writable claim %q, got %+v", component, claimName, pod.Volumes)
-					}
-					if len(mounts) != 1 || mounts[0].Name != "data" || mounts[0].MountPath != "/data" || mounts[0].ReadOnly || mounts[0].SubPath != "" {
-						t.Fatalf("%s: expected writable /data mount, got %+v", component, mounts)
-					}
-					if pass == 0 {
+					assertDataMount(t, pod, component, claimName)
+					if claimName != "" && pass == 0 {
 						// Exercise correction of existing deployments on the next reconciliation.
 						pod.Volumes[0].PersistentVolumeClaim.ClaimName = "wrong-claim"
 						pod.Containers[0].VolumeMounts[0].MountPath = "/wrong"
@@ -126,7 +84,7 @@ func TestReconcileDataVolume(t *testing.T) {
 						}
 					}
 				}
-				assertClaimsUnchanged()
+				assertDataClaimUnchanged(t, ctx, r.Client, server.Namespace, existingClaim)
 			}
 			current := &authentikv1alpha1.AuthentikServer{}
 			if err := r.Get(ctx, request.NamespacedName, current); err != nil {
@@ -146,11 +104,9 @@ func TestReconcileDataVolume(t *testing.T) {
 						t.Fatal(err)
 					}
 					pod := &deployment.Spec.Template.Spec
-					if len(pod.Volumes) != 0 || len(pod.Containers[0].VolumeMounts) != 0 {
-						t.Fatalf("%s: removed claim retains storage", component)
-					}
+					assertDataMount(t, pod, component, "")
 				}
-				assertClaimsUnchanged()
+				assertDataClaimUnchanged(t, ctx, r.Client, server.Namespace, existingClaim)
 				if err := r.Get(ctx, request.NamespacedName, current); err != nil {
 					t.Fatal(err)
 				}
@@ -166,7 +122,55 @@ func TestReconcileDataVolume(t *testing.T) {
 			if _, err := r.Reconcile(ctx, request); err != nil {
 				t.Fatal(err)
 			}
-			assertClaimsUnchanged()
+			assertDataClaimUnchanged(t, ctx, r.Client, server.Namespace, existingClaim)
 		})
+	}
+}
+
+func assertDataClaimUnchanged(t *testing.T, ctx context.Context, c client.Client, namespace string, existingClaim *corev1.PersistentVolumeClaim) {
+	t.Helper()
+	claims := &corev1.PersistentVolumeClaimList{}
+	if err := c.List(ctx, claims, client.InNamespace(namespace)); err != nil {
+		t.Fatal(err)
+	}
+	if existingClaim == nil {
+		if len(claims.Items) != 0 {
+			t.Fatalf("omitted dataVolumeClaimName created claims: %v", claims.Items)
+		}
+		return
+	}
+	if len(claims.Items) != 1 {
+		t.Fatalf("expected only existing claim, got %d", len(claims.Items))
+	}
+	claim := &claims.Items[0]
+	if claim.UID != existingClaim.UID || claim.Name != existingClaim.Name ||
+		!reflect.DeepEqual(claim.Spec, existingClaim.Spec) ||
+		!reflect.DeepEqual(claim.Labels, existingClaim.Labels) ||
+		!reflect.DeepEqual(claim.Annotations, existingClaim.Annotations) ||
+		len(claim.OwnerReferences) != 0 || claim.DeletionTimestamp != nil {
+		t.Fatalf("existing claim was replaced, adopted or modified: %+v", claim)
+	}
+}
+
+func assertDataMount(t *testing.T, pod *corev1.PodSpec, component, claimName string) {
+	t.Helper()
+	if len(pod.Containers) != 1 {
+		t.Fatalf("%s: expected one container", component)
+	}
+	mounts := pod.Containers[0].VolumeMounts
+	if claimName == "" {
+		if len(pod.Volumes) != 0 || len(mounts) != 0 {
+			t.Fatalf("%s: omitted claim must not add storage", component)
+		}
+		return
+	}
+	if len(pod.Volumes) != 1 || pod.Volumes[0].Name != "data" ||
+		pod.Volumes[0].PersistentVolumeClaim == nil ||
+		pod.Volumes[0].PersistentVolumeClaim.ClaimName != claimName ||
+		pod.Volumes[0].PersistentVolumeClaim.ReadOnly {
+		t.Fatalf("%s: expected existing writable claim %q, got %+v", component, claimName, pod.Volumes)
+	}
+	if len(mounts) != 1 || mounts[0].Name != "data" || mounts[0].MountPath != "/data" || mounts[0].ReadOnly || mounts[0].SubPath != "" {
+		t.Fatalf("%s: expected writable /data mount, got %+v", component, mounts)
 	}
 }
