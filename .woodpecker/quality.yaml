@@ -3,7 +3,7 @@ when:
 
 steps:
   quality:
-    image: code.olsen.cloud/ci/mise:latest@sha256:7594352040e249ee8a75b2478e8373572f133022f2be9f7d882941b84dae9dd6
+    image: code.olsen.cloud/ci/mise:latest@sha256:b9be3cb065cb3e8b1d47c9aafe3f1bcba5cddea6522a8f94d51b54a446061aeb
     commands:
       - mise install
       - task ci:quality
