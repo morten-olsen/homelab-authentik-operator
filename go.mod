@@ -3,7 +3,7 @@ module github.com/mortenolsen/operator-authentik
 go 1.25
 
 require (
-	github.com/onsi/ginkgo/v2 v2.22.0
+	github.com/onsi/ginkgo/v2 v2.34.0
 	github.com/onsi/gomega v1.36.1
 	goauthentik.io/api/v3 v3.2026080.3
 	k8s.io/api v0.34.1
