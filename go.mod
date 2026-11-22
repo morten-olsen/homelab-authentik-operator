@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/onsi/ginkgo/v2 v2.22.0
-	github.com/onsi/gomega v1.36.1
+	github.com/onsi/gomega v1.44.0
 	goauthentik.io/api/v3 v3.2026080.3
 	k8s.io/api v0.34.1
 	k8s.io/apimachinery v0.34.1
